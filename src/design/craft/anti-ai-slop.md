@@ -10,6 +10,13 @@ honest.
 
 > Adapted from [refero_skill](https://github.com/referodesign/refero_skill)
 > (MIT), tightened to match Open Design's lint surface.
+>
+> Research basis: [Antislop: A Comprehensive Framework for Identifying and
+> Eliminating Repetitive Patterns in Language Models](https://openreview.net/forum?id=gLcyM1khyp)
+> (Paech et al., ICLR 2026). Slop patterns appear 1,000× more frequently
+> in LLM output than human text. The Antislop Sampler suppresses 8,000+
+> patterns via backtracking; FTPO fine-tuning achieves 90% slop reduction
+> while maintaining quality on GSM8K, MMLU, and creative writing.
 
 ## The seven cardinal sins
 

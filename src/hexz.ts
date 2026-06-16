@@ -2,6 +2,7 @@ import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 export const VERSION = "1.4.0";
 function fileExistsSync(p: string): boolean {
   try { return existsSync(p); } catch { return false; }
@@ -34,6 +35,41 @@ function* globSync(pattern: string, cwd: string): Generator<string> {
 
 const CRAFT_DEFAULT_SECTIONS = ["typography", "color", "anti-ai-slop"];
 const DESIGN_DIR = join(import.meta.dir!, "design");
+const SIMS_DIR = ".sims";
+
+function scanCodebase(cwd: string): string {
+  const files: string[] = [];
+  function walk(dir: string) {
+    try {
+      const entries = readdirSync(dir);
+      for (const entry of entries) {
+        const full = join(dir, entry);
+        if (entry.startsWith(".") || entry === "node_modules") continue;
+        if (statSync(full).isDirectory()) walk(full);
+        else if (entry.endsWith(".ts") || entry.endsWith(".js") || entry.endsWith(".tsx") || entry.endsWith(".jsx") || entry.endsWith(".py") || entry.endsWith(".rs") || entry.endsWith(".go") || entry.endsWith(".java") || entry.endsWith(".css") || entry.endsWith(".html")) files.push(full);
+      }
+    } catch {}
+  }
+  walk(cwd);
+  const lines: string[] = ["# Codebase Map\n"];
+  lines.push(`Generated: ${new Date().toISOString()}\n`);
+  lines.push(`Total source files: ${files.length}\n`);
+  lines.push("---\n");
+  for (const f of files.sort()) {
+    const rel = f.replace(cwd, "").replace(/^[/\\]/, "");
+    const content = readFile(f) ?? "";
+    const lines_count = content.split("\n").length;
+    const imports = (content.match(/^import .+ from .+$/gm) ?? []).slice(0, 5);
+    const exports = (content.match(/^export (default |)const |^export (default |)function |^export (default |)class /gm) ?? []).slice(0, 3);
+    lines.push(`## ${rel}`);
+    lines.push(`- Lines: ${lines_count}`);
+    if (imports.length) lines.push(`- Imports: ${imports.map(i => `\`${i.trim()}\``).join(", ")}`);
+    if (exports.length) lines.push(`- Exports: ${exports.map(e => `\`${e.trim()}\``).join(", ")}`);
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
 
 function readCraftSection(dir: string, section: string): string {
   const path = join(dir, "craft", `${section}.md`);
@@ -101,6 +137,44 @@ const state = {
 const searchCache = new Map<string, SearchCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const RATE_LIMIT_MS = 3000;
+const INSIGHTS = [
+  "Are you handling the error case where the input might be null or undefined?",
+  "Does this change break any existing tests? Run the test suite to verify.",
+  "Consider if this needs a migration or backward-compat shim for existing data.",
+  "Did you check if there are similar patterns elsewhere in the codebase you should follow?",
+  "Think about the edge case: what happens when the file is empty or malformed?",
+  "Did you verify the types are consistent across the entire call chain?",
+  "Is there a simpler existing utility in the codebase that already does this?",
+  "Does this introduce any new dependencies? Is there a lighter alternative?",
+  "Consider the failure mode: what if the API/database call times out?",
+  "Are you handling both sync and async error paths for this operation?",
+  "Does the change respect the existing naming conventions in this file?",
+  "Think about logging: will this change make debugging harder for the next engineer?",
+  "Did you check if this function is called from somewhere unexpected? grep for callers.",
+  "Consider extracting this into a smaller helper function for testability.",
+  "Are there any race conditions between this change and concurrent operations?",
+  "Does this change need documentation updated? README, API docs, or inline comments?",
+  "Think about the security boundary: is user input properly validated and sanitized?",
+  "Consider the diff size: can this be broken into smaller, reviewable commits?",
+];
+
+const CYBER_DOMAINS = [
+  { id: "recon", label: "Reconnaissance & OSINT", keywords: ["recon", "osint", "enumeration", "dns", "fingerprint"] },
+  { id: "vuln_scan", label: "Vulnerability Scanning & Assessment", keywords: ["vuln", "cve", "cvss", "audit"] },
+  { id: "exploit_dev", label: "Exploit Development & Payload Engineering", keywords: ["exploit", "payload", "shellcode", "buffer overflow"] },
+  { id: "reverse_eng", label: "Reverse Engineering & Binary Analysis", keywords: ["reverse", "binary", "assembly", "firmware"] },
+  { id: "malware", label: "Malware Analysis & Sandboxing", keywords: ["malware", "yara", "sandbox", "static", "dynamic"] },
+  { id: "threat_hunt", label: "Threat Hunting & IOC Analysis", keywords: ["threat", "hunt", "ioc", "sigma", "mitre"] },
+  { id: "incident_resp", label: "Incident Response & Digital Forensics", keywords: ["incident", "forensics", "memory", "timeline"] },
+  { id: "network_sec", label: "Network Security & Traffic Analysis", keywords: ["network", "pcap", "snort", "suricata", "firewall"] },
+  { id: "webapp_sec", label: "Web Application Security Testing", keywords: ["web", "owasp", "sqli", "xss", "api", "jwt"] },
+  { id: "cloud_sec", label: "Cloud Security & Container Hardening", keywords: ["cloud", "aws", "azure", "gcp", "docker", "k8s"] },
+  { id: "soc_ops", label: "CSOC Operations & Playbook Automation", keywords: ["soc", "playbook", "triage", "escalation"] },
+  { id: "log_analysis", label: "Log Analysis & SIEM Integration", keywords: ["log", "siem", "spl", "kql", "anomaly"] },
+  { id: "crypto", label: "Cryptographic Analysis & Assessment", keywords: ["crypto", "tls", "cipher", "key", "encryption"] },
+  { id: "red_team", label: "Red Team Operations", keywords: ["red team", "c2", "ad", "kerberos", "social"] },
+  { id: "blue_team", label: "Blue Team Defense & Hardening", keywords: ["blue team", "hardening", "detection", "patching"] },
+];
 function isSafeInput(input: string): boolean {
   return /^[a-zA-Z0-9@.\/_\- ]+$/.test(input) && input.length <= 500;
 }
@@ -487,6 +561,9 @@ You are a battle-hardened senior engineer. You ship working code, not essays.
    - Then build it. No preamble.
 8. Use hexz_search() BEFORE writing any code. Every. Single. Time.
    You don't know the latest API. You don't know the breaking changes. Search first.
+   After building, use hexz_scan() to find vulnerabilities.
+   If an image is provided, use hexz_image() to analyze it.
+   If a design/mockup is asked, use hexz_design() to scaffold it.
 9. Write production code from line 1:
    - Error handling: try/catch with specific messages
    - Input validation: check before using
@@ -508,30 +585,65 @@ You are a battle-hardened senior engineer. You ship working code, not essays.
 12. If something is wrong, say so directly:
     BAD: "That approach might work but there could be some edge cases to consider..."
     GOOD: "That'll break when the user is null. Use optional chaining."
-══ TOOLS ══
-hexz_search: Use before EVERY build. Search for latest docs, patterns, gotchas.
-hexz_scan: Run security audit after building. 7 modules, CVSS scores.
-hexz_design: Generate HTML/CSS mockups. Single file, no external deps.
-hexz_image: Read screenshots, errors, diagrams. Describe what you see.
-hexz_mkp: Install plugins & skills. "list", "remove:name", "owner/repo", "npm-pkg", "skill:owner/repo".
-hexz_status: Check if HEXZ is active.
+13. SAFETY PROTOCOL — three tiers of action:
+    Tier 1 — Chat/Read: Just answer. No simulation needed.
+    Tier 2 — Read tools (Read, Glob, Grep, Bash-ls/cat): IMAGINE the impact before proceeding. Think through what the data shows.
+    Tier 3 — Destructive tools (Write, Edit, Bash-rm/mv/cp, Rewrite): SIMULATE first.
+       a. THINK: what files are affected? what could break?
+       b. SIMULATE: create .sims/simscode-<name>/ with the proposed changes as a diff/snapshot
+       c. VERIFY: check the simulation for errors, edge cases, issues
+       d. EXECUTE: only if simulation passes. If issues found, fix and re-simulate.
+    Before any destructive action, use hexz_sim() to create the simulation sandbox.
+14. ANTI-SLOP ENFORCEMENT — slop patterns appear 1,000x more in AI output than human text.
+    The Antislop framework (ICLR 2026) suppresses 8,000+ patterns. You must self-enforce:
+    - No filler phrases: "delve", "leverage", "utilize", "robust", "seamless", "landscape"
+    - No AI-template structure: never "Sure!", "Certainly!", "Great question!"
+    - No default Tailwind indigo, purple→blue gradients, emoji icons, lorem ipsum
+    - Before responding, scan your planned output for these patterns and eliminate them.
+    - 90% slop reduction is the target. Every response should pass the "could a human have written this?" test.
+    - Use hexz_search for production code patterns, not your training defaults.
+══ TOOLS (use these — they exist) ══
+hexz_search — Web search. Call BEFORE writing any code. Always get current API docs, breaking changes, best practices. Never guess — search first.
+hexz_scan   — Security audit. Run AFTER building. Checks for injections, XSS, secrets, dependency vulns, CVSS scores.
+hexz_design — UI scaffold generator. Call when user asks for a design/mockup. Applies craft rules and design systems.
+hexz_image  — Image analysis. Call when user shares an image (screenshot, error, diagram, mockup). Describe and act on it.
+hexz_mkp    — Plugin/skill marketplace. Call when user wants to install or list plugins/skills.
+hexz_status — Status check. Call to verify HEXZ is active.
+hexz_sim    — Simulation sandbox. Call BEFORE any destructive action (Write, Edit, Bash-rm/mv/cp). Creates a sim at .sims/simscode-<name>/ with a diff/snapshot of proposed changes. Verify the sim works, then execute.
+hexz_codebase — Codebase map. Call to scan the project and generate/update codebase.md. Shows every file, its imports, exports, and purpose. Read this before making changes to understand file connections.
+hexz_cyber  — Cybersecurity toolkit. 15 core domains (recon, exploit dev, malware, forensics, web/cloud/network security, red/blue team) mapped to MITRE ATT&CK (218 techniques), NIST CSF 2.0, OWASP Top 10. Call for any security task.
+══ SIMULATION WORKFLOW ══
+For destructive actions (Write, Edit, Bash with rm/mv/cp):
+  1. hexz_search for current best practices
+  2. hexz_codebase to understand file connections
+  3. Plan the change (think about impact)
+  4. hexz_sim to create a simulation at .sims/simscode-<name>/
+  5. Review the sim for errors and edge cases
+  6. If sim is clean → execute the real change
+  7. If sim has issues → fix plan, re-simulate
+For read-only actions (Read, Glob, Grep, Bash-ls/cat):
+  1. hexz_codebase if you need file context
+  2. IMAGINE the impact of what you're reading
+  3. Proceed directly (no sim needed)
 ══ WHAT TO DO ══
+Every response follows this flow:
+  hexz_search → plan → build → hexz_scan → respond
 When user says "build X":
-  1. Ask clarifying questions (stack, scope, auth, DB)
-  2. Search with hexz_search for current best practices
-  3. Plan architecture (2-3 sentences max)
-  4. Build it — write the code, don't describe writing it
-  5. Review for bugs, errors, secrets
-  6. Tell user what you built
+  1. Use hexz_search to find current best practices for the stack
+  2. Ask clarifying questions (stack, scope, auth, DB)
+  3. Build it — write the code, don't describe writing it
+  4. Use hexz_scan after building to check for issues
+  5. Tell user what you built
 When user shares code to review:
   1. Read it
   2. Find the bugs (there are always bugs)
   3. Show the fix, not the problem description
-  4. Run hexz_scan if security-relevant
+  4. Run hexz_scan if the code touches security, auth, or data
 When user asks a question:
-  1. Answer directly (1 sentence if possible)
-  2. Show example if helpful
-  3. Stop talking
+  1. Use hexz_search if the question involves APIs, libraries, versions, or current info
+  2. Answer directly (1 sentence if possible)
+  3. Show example if helpful
+  4. Stop talking
 `.trim();
 const CONTEXT_PRESERVE = `
 ## HEXZ Active
@@ -542,8 +654,9 @@ Active since: ${new Date(state.startTime).toISOString()}
 `.trim();
 export const HexzPlugin: Plugin = async (input: any, options?: any) => {
   const { client, $ } = input || {} as any;
-  const dbDir = `${process.env.HOME}/.config/opencode`;
-  const dbPath = `${dbDir}/hexz-memory.json`;
+  const projectDir = input?.directory ?? ".";
+  const dbDir = join(homedir(), ".config", "opencode");
+  const dbPath = join(dbDir, "hexz-memory.json");
   const memStore = new Map<string, string>();
   try { mkdirSync(dbDir, { recursive: true }); } catch {}
   try {
@@ -552,6 +665,8 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
     for (const [k, v] of Object.entries(data)) {
       if (typeof v === "string") memStore.set(k, v);
     }
+    const savedActive = memStore.get("active");
+    if (savedActive === "true") state.active = true;
   } catch {}
   function saveMemory(): void {
     try {
@@ -750,17 +865,15 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
       state.lastUserMessage = text;
       if (text.includes("HEXZ_ACTIVATE") || text.trim() === "/active" || /engage\s+hexz/i.test(text)) {
         state.active = true;
-        for (const part of output.parts) {
-          if (part.text) part.text = part.text.replace(/HEXZ_ACTIVATE|\/active/gi, "").trim();
-          if (part.text === "") part.text = "HEXZ mode activated.";
-        }
+        setMemory("active", "true");
+        output.parts = [];
+        return;
       }
       if (text.includes("HEXZ_DEACTIVATE") || text.trim() === "/off" || /revert\s+to\s+default/i.test(text)) {
         state.active = false;
-        for (const part of output.parts) {
-          if (part.text) part.text = part.text.replace(/HEXZ_DEACTIVATE|\/off/gi, "").trim();
-          if (part.text === "") part.text = "HEXZ mode deactivated.";
-        }
+        setMemory("active", "false");
+        output.parts = [];
+        return;
       }
     },
     "experimental.chat.system.transform": async (_input, output) => {
@@ -768,9 +881,19 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
       if (output.system.some((s: string) => s.includes("HEXZ"))) return;
       output.system.push(SYSTEM_PROMPT);
     },
-    "command.execute.before": async (input, _output) => {
-      if (input.command === "active") state.active = true;
-      if (input.command === "off") state.active = false;
+    "command.execute.before": async (input, output) => {
+      if (input.command === "active") {
+        state.active = true;
+        setMemory("active", "true");
+        output.parts = [];
+        return;
+      }
+      if (input.command === "off") {
+        state.active = false;
+        setMemory("active", "false");
+        output.parts = [];
+        return;
+      }
     },
     "chat.params": async (_input, output) => {
       if (!state.active) return;
@@ -790,7 +913,7 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
     },
     "tool.execute.before": async (input, output) => {
       if (!state.active) return;
-      if (input.tool !== "Bash" && input.tool !== "Write") return;
+      if (input.tool !== "Bash" && input.tool !== "Write" && input.tool !== "Edit") return;
       const args = JSON.stringify(output.args ?? "");
     
       if (isInstall(args)) {
@@ -804,17 +927,41 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
         throw new Error(result);
       }
     
-      if (!isBuild(args)) return;
-      state.searches++;
-      const topic = guessTopic(args);
-      let result = `[HEXZ] Researching: "${topic}"\n\n`;
-      try {
-        result += (await webSearch(topic)).slice(0, 1200);
-      } catch {
-        result += "Search unavailable";
+      if (isBuild(args)) {
+        state.searches++;
+        const topic = guessTopic(args);
+        let result = `[HEXZ] Researching: "${topic}"\n\n`;
+        try {
+          result += (await webSearch(topic)).slice(0, 1200);
+        } catch {
+          result += "Search unavailable";
+        }
+        result += "\n\n[HEXZ] Use the above to inform your build. Then proceed.";
+        throw new Error(result);
       }
-      result += "\n\n[HEXZ] Use the above to inform your build. Then proceed.";
-      throw new Error(result);
+    
+      const destructivePatterns = ["rm ", "mv ", "cp ", ">", ">>", "|", "dd ", "chmod ", "chown ", "mkfs", "format"];
+      const isDestructive = destructivePatterns.some(p => args.includes(p));
+      if (isDestructive || input.tool === "Write" || input.tool === "Edit") {
+        let insight = "";
+        if (Math.random() < 0.4) {
+          const pick = INSIGHTS[Math.floor(Math.random() * INSIGHTS.length)]!;
+          insight = `\n\nInsight <==\n${pick}\n=======>\n`;
+        }
+        const simDir = join(projectDir, SIMS_DIR);
+        const hasSim = fileExistsSync(simDir) && readdirSync(simDir).length > 0;
+        if (!hasSim) {
+          throw new Error(
+            "[HEXZ] SAFETY: No simulation found for this destructive action.\n" +
+            `Create a simulation first: use hexz_sim(name="describe-change") to sandbox at ${SIMS_DIR}/simscode-<name>/\n` +
+            "1. Think about what files are affected and what could break\n" +
+            "2. Run hexz_sim() to create the sim sandbox\n" +
+            "3. Review the simulation for errors and edge cases\n" +
+            "4. If the sim is clean, retry this action" +
+            insight
+          );
+        }
+      }
     },
     "tool.execute.after": async (_input, output) => {
       if (!state.active) return;
@@ -828,13 +975,28 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
       }
     },
     "tool.definition": async (input, output) => {
-      const hexzTools = new Set([
-        "hexz_search", "hexz_scan", "hexz_design", "hexz_image", "hexz_mkp", "hexz_status",
-      ]);
-      if (!hexzTools.has(input.toolID)) return;
-      if (!state.active) {
-        output.description = "[HEXZ OFF] Activate with /active first.";
-      }
+      const desc: Record<string, string> = {
+        hexz_search:
+          "Web search via DuckDuckGo. Returns latest docs, API changes, breaking changes, best practices. Call BEFORE writing any code — always get current info first.",
+        hexz_scan:
+          "Security audit: injection, XSS, secrets, dependency vulns, data flow, auth, crypto. CVSS v3.1 scores. Run after building to catch vulnerabilities.",
+        hexz_design:
+          "Generate HTML/CSS design scaffolds from a brief. Applies craft rules, design systems, or project DESIGN.md. Call to create UI mockups.",
+        hexz_image:
+          "Analyze images: UI screenshots, error messages, diagrams, mockups. Describe what you see and execute (replicate UI, fix errors, code from diagrams).",
+        hexz_mkp:
+          "Install plugins & skills from GitHub or npm. Commands: list, remove:name, owner/repo, npm-pkg, skill:owner/repo, skill:name --content \"...\"",
+        hexz_status:
+          "Show HEXZ status: active/inactive, uptime, search count, cache entries.",
+        hexz_sim:
+          "Simulation sandbox for destructive actions. Creates .sims/simscode-<name>/ with a diff of proposed changes. Call BEFORE Write/Edit/Bash-rm/mv/cp. Pass the plan and files to simulate.",
+        hexz_codebase:
+          "Scan the project and generate/update codebase.md. Shows every source file, its imports, exports, line count, and connections. Read this before making changes to understand the full picture.",
+        hexz_cyber:
+          "Cybersecurity skills & framework mappings. 15 core domains: recon, vuln scan, exploit dev, reverse engineering, malware analysis, threat hunting, incident response, network/web/cloud security, forensics, SOC, crypto, red/blue team. Mapped to MITRE ATT&CK, NIST CSF 2.0, OWASP Top 10. Call for any security-related task.",
+      };
+      if (!desc[input.toolID]) return;
+      output.description = state.active ? desc[input.toolID] : "[HEXZ OFF] Activate with /active first.";
     },
     "session.idle": async (_input: any, _output: any) => {
       if (!state.active) return;
@@ -886,7 +1048,13 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
       const projectTypes = await detectProjectType(dir);
       if (projectTypes.length > 0 && !state.active) {
         state.active = true;
+        setMemory("active", "true");
       }
+    },
+    "experimental.session.compacting": async (_input, output) => {
+      if (!state.active) return;
+      output.context = output.context ?? [];
+      output.context.push(CONTEXT_PRESERVE);
     },
     tool: {
       hexz_search: tool({
@@ -1092,6 +1260,119 @@ Intent: ${args.intent ?? "auto"}
         async execute() {
           const up = Math.floor((Date.now() - state.startTime) / 1000);
           return `HEXZ: ${state.active ? "ON" : "OFF"} | v${VERSION} | ${Math.floor(up / 60)}m${up % 60}s | ${state.searches} searches | cache: ${searchCache.size} entries`;
+        },
+      }),
+      hexz_sim: tool({
+        description: "Simulation sandbox for destructive actions. Creates a sim at .sims/simscode-<name>/ with a diff of proposed changes. Call BEFORE Write/Edit/Bash-rm/mv/cp.",
+        args: {
+          name: tool.schema.string(),
+          plan: tool.schema.string(),
+          files: tool.schema.string().optional(),
+        },
+        async execute(args, _ctx) {
+          if (!state.active) return "HEXZ not active. Type /active first.";
+          const simName = args.name.replace(/[^a-zA-Z0-9._-]/g, "");
+          if (!simName) return "Invalid simulation name.";
+          const simDir = join(projectDir, SIMS_DIR, `simscode-${simName}`);
+          try { mkdirSync(simDir, { recursive: true }); } catch { return `Failed to create ${simDir}`; }
+          const ts = new Date().toISOString();
+          const simContent = [
+            `# Simulation: ${simName}`,
+            `Created: ${ts}`,
+            "",
+            "## Plan",
+            args.plan,
+            "",
+            "## Files Affected",
+            args.files ?? "(not specified)",
+            "",
+            "## Status: PENDING REVIEW",
+            "Review the plan and files above. Check for:",
+            "- Edge cases and error states",
+            "- Breaking changes to other files",
+            "- Missing imports or dependencies",
+            "- Type mismatches",
+            "- Security implications",
+            "",
+            "## Result",
+            "- [ ] Simulation reviewed",
+            "- [ ] Edge cases handled",
+            "- [ ] No breaking changes",
+            "- [ ] Ready to execute",
+          ].join("\n");
+          writeFile(join(simDir, "simulation.md"), simContent);
+          return `[HEXZ Sim] Created simulation at .sims/simscode-${simName}/\nPlan: ${args.plan}\nReview the sim before executing. When ready, the destructive action will be allowed.`;
+        },
+      }),
+      hexz_codebase: tool({
+        description: "Scan the project and generate/update codebase.md. Shows every source file, its imports, exports, and connections.",
+        args: {},
+        async execute() {
+          if (!state.active) return "HEXZ not active. Type /active first.";
+          const content = scanCodebase(projectDir);
+          const dest = join(projectDir, "codebase.md");
+          writeFile(dest, content);
+          return `[HEXZ Codebase] Generated codebase.md (${content.split("\n").length} lines). Read it to understand file connections before making changes.`;
+        },
+      }),
+      hexz_cyber: tool({
+        description: "Cybersecurity skills & framework mappings. 15 core domains: recon, vuln scan, exploit dev, reverse engineering, malware analysis, threat hunting, incident response, network/web/cloud security, forensics, SOC, crypto, red/blue team. Call for any security-related task.",
+        args: {
+          domain: tool.schema.string().optional(),
+          query: tool.schema.string().optional(),
+          framework: tool.schema.string().optional(),
+        },
+        async execute(args, _ctx) {
+          if (!state.active) return "HEXZ not active. Type /active first.";
+          const lines: string[] = ["[HEXZ Cyber]"];
+          if (args.framework) {
+            const fw = args.framework.toLowerCase();
+            if (fw === "mitre") {
+              lines.push("MITRE ATT&CK: 14 tactics, 218+ techniques");
+              lines.push("Key techniques: T1059.001 (PowerShell), T1055 (Process Injection), T1053.005 (Scheduled Task)");
+              lines.push("Use hexz_search to find specific technique mappings.");
+            } else if (fw === "nist") {
+              lines.push("NIST CSF 2.0: Govern, Identify, Protect, Detect, Respond, Recover");
+              lines.push("Use hexz_search to find control mappings for specific domains.");
+            } else if (fw === "owasp") {
+              lines.push("OWASP Top 10: A01-A10 including Injection, Broken Auth, XSS, SSRF");
+              lines.push("Use hexz_search for specific category guidance.");
+            } else {
+              lines.push(`Unknown: ${args.framework}. Use: mitre, nist, owasp`);
+            }
+            return lines.join("\n");
+          }
+          if (args.domain) {
+            const q = args.domain.toLowerCase();
+            const match = CYBER_DOMAINS.find(d => d.id.includes(q) || d.label.toLowerCase().includes(q) || d.keywords.some(k => k.includes(q)));
+            if (match) {
+              lines.push(`Domain: ${match.label}`);
+              lines.push(`Keywords: ${match.keywords.join(", ")}`);
+              lines.push("Use hexz_search for in-depth methodology and tools for this domain.");
+              return lines.join("\n");
+            }
+            lines.push(`Domain '${args.domain}' not found. Available:`);
+            for (const d of CYBER_DOMAINS) lines.push(`  ${d.id} — ${d.label}`);
+            return lines.join("\n");
+          }
+          if (args.query) {
+            const q = args.query.toLowerCase();
+            lines.push(`Searching cybersecurity domains for: ${args.query}`);
+            const matched = CYBER_DOMAINS.filter(d => d.label.toLowerCase().includes(q) || d.keywords.some(k => k.includes(q)));
+            if (matched.length) {
+              for (const m of matched) lines.push(`  ${m.id} — ${m.label}`);
+            } else {
+              lines.push("No direct domain match. All available:");
+              for (const d of CYBER_DOMAINS) lines.push(`  ${d.id} — ${d.label}`);
+            }
+            lines.push("\nFramework mappings: mitre, nist, owasp");
+            return lines.join("\n");
+          }
+          lines.push("Use domain=, query=, or framework=");
+          lines.push("\nAll domains:");
+          for (const d of CYBER_DOMAINS) lines.push(`  ${d.id} — ${d.label}`);
+          lines.push("\nFrameworks: mitre, nist, owasp");
+          return lines.join("\n");
         },
       }),
     },

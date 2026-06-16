@@ -1,6 +1,6 @@
 {
   "name": "opencode-hexz",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "HEXZ — OpenCode upgrade layer. Anti-slop, security scanning, design scaffolds, web search, image handling, plugin marketplace.",
   "type": "module",
   "main": "dist/hexz.js",
