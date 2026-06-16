@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HEXZ — OpenCode Upgrade Layer</title>
+<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="container nav__inner">
+    <a href="#" class="nav__logo">HEXZ</a>
+    <div class="nav__links">
+      <a href="#tools" class="nav__link">Tools</a>
+      <a href="#commands" class="nav__link">Commands</a>
+      <a href="#workflow" class="nav__link">Workflow</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="container">
+    <span class="hero__eyebrow">OpenCode Plugin v1.4.0</span>
+    <h1 class="hero__title"><em>HEXZ</em> upgrade layer</h1>
+    <p class="hero__tagline">Ship working code. Not essays.<br>Anti-slop, security, design &mdash; in your CLI.</p>
+    <div class="hero__actions">
+      <a href="https://github.com/anomalyco/opencode-hexz" class="btn btn--primary">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <a href="#tools" class="btn btn--secondary">Explore Tools</a>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <div class="stats" id="stats"></div>
+
+  <section id="tools">
+    <h2 class="section-title">Tools</h2>
+    <div class="features" id="features"></div>
+  </section>
+
+  <section id="commands">
+    <h2 class="section-title">Commands</h2>
+    <div class="commands">
+      <div class="commands__grid" id="commandsGrid"></div>
+    </div>
+  </section>
+
+  <section id="workflow" class="workflow">
+    <h2 class="section-title">Build Workflow</h2>
+    <div class="workflow__steps" id="workflowSteps"></div>
+  </section>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <p><a href="https://github.com/anomalyco/opencode-hexz">HEXZ</a> &mdash; MIT License &middot; Built for <a href="https://opencode.ai">OpenCode</a></p>
+  </div>
+</footer>
+
+<script type="module" src="script.js"></script>
+</body>
+</html>
