@@ -80,14 +80,14 @@ tool: {
 }
 ```
 
-2. Add it to the `HEXZ_PROMPT` string so the LLM knows about it.
+2. Add it to the `SYSTEM_PROMPT` string so the LLM knows about it.
 
 3. Update the README with usage examples.
 
 ## Security Considerations
 
 - Always sanitize user inputs
-- Use the `sanitizeInput()` helper for search queries
+- Use the `isSafeInput()` helper for search queries
 - Validate file paths before operations
 - Never log sensitive information
 - Follow OWASP guidelines
@@ -112,4 +112,4 @@ Before submitting:
 
 ## Questions?
 
-Open an issue at https://github.com/opencode-community/opencode-hexz/issues
+Open an issue at https://github.com/hexzonetwork/opencode-hexz/issues
