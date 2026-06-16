@@ -138,7 +138,7 @@ if exist "%dir%\opencode.json" set "config_file=%dir%\opencode.json"
 if exist "%dir%\opencode.jsonc" set "config_file=%dir%\opencode.jsonc"
 if "%config_file%"=="" goto :eof
 
-set "plugin_path=.opencode\plugins"
+set "plugin_path=./.opencode/plugins"
 if /i "%dir%"=="%USERPROFILE%\.config\opencode" set "plugin_path=~/.config/opencode/plugins"
 
 powershell -NoProfile -Command ^

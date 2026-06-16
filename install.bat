@@ -203,7 +203,7 @@ if not exist "%dest%\commands" mkdir "%dest%\commands"
 copy "%SCRIPT_DIR%\dist\hexz.js" "%hexzdir%\index.js" >nul
 copy "%SCRIPT_DIR%\src\hexz.ts" "%hexzdir%\index.ts" >nul
 if exist "%SCRIPT_DIR%\src\design" (
-  xcopy "%SCRIPT_DIR%\src\design" "%hexzdir%\design\" /e /i /q >nul
+  xcopy "%SCRIPT_DIR%\src\design" "%hexzdir%\design\" /e /i /q /y >nul
 )
 
 (
@@ -225,38 +225,32 @@ echo   }
 echo }
 ) > "%plugdir%\package.json"
 
-(
-echo let initialized = false;
-echo let hooks = null;
-echo.
-echo const init = async (input^) =^> {
-echo   if (initialized^) return hooks ^|^| {};
-echo   initialized = true;
-echo   const mod = await import("./hexz/index.ts");
-echo   const fn = mod.default ^|^| mod.HexzPlugin ^|^| mod;
-echo   if (typeof fn === "function"^) hooks = (await fn(input^)^) ^|^| {};
-echo   else hooks = {};
-echo   return hooks;
-echo };
-echo.
-echo const HexzPlugin = (input^) =^> init(input^);
-echo export default HexzPlugin;
-echo export const server = HexzPlugin;
-) > "%plugdir%\index.ts"
+> "%plugdir%\index.ts" echo let initialized = false;
+>> "%plugdir%\index.ts" echo let hooks: any = null;
+>> "%plugdir%\index.ts" echo.
+>> "%plugdir%\index.ts" echo const init = async (input: any^) =^> {
+>> "%plugdir%\index.ts" echo   if (initialized^) return hooks ^|^| {};
+>> "%plugdir%\index.ts" echo   initialized = true;
+>> "%plugdir%\index.ts" echo   const mod = await import^("./hexz/index.ts"^);
+>> "%plugdir%\index.ts" echo   const fn = mod.default ^|^| mod.HexzPlugin ^|^| mod;
+>> "%plugdir%\index.ts" echo   if ^(typeof fn === "function"^) hooks = ^(await fn^(input^)^)^) ^|^| {};
+>> "%plugdir%\index.ts" echo   else hooks = {};
+>> "%plugdir%\index.ts" echo   return hooks;
+>> "%plugdir%\index.ts" echo };
+>> "%plugdir%\index.ts" echo.
+>> "%plugdir%\index.ts" echo const HexzPlugin: any = (input: any^) =^> init(input^);
+>> "%plugdir%\index.ts" echo export default HexzPlugin;
+>> "%plugdir%\index.ts" echo export const server = HexzPlugin;
 
-(
-echo ---
-echo description: Engage HEXZ upgrade layer (anti-slop, security, design, search, marketplace)
-echo ---
-echo HEXZ_ACTIVATE
-) > "%dest%\commands\active.md"
+> "%dest%\commands\active.md" echo ---
+>> "%dest%\commands\active.md" echo description: Engage HEXZ upgrade layer ^(anti-slop, security, design, search, marketplace^)
+>> "%dest%\commands\active.md" echo ---
+>> "%dest%\commands\active.md" echo HEXZ_ACTIVATE
 
-(
-echo ---
-echo description: Revert to default opencode behavior
-echo ---
-echo HEXZ_DEACTIVATE
-) > "%dest%\commands\off.md"
+> "%dest%\commands\off.md" echo ---
+>> "%dest%\commands\off.md" echo description: Revert to default opencode behavior
+>> "%dest%\commands\off.md" echo ---
+>> "%dest%\commands\off.md" echo HEXZ_DEACTIVATE
 
 echo [OK] %label%
 echo     plugins\hexz\index.ts   -^> %hexzdir%\index.ts
@@ -276,10 +270,12 @@ if exist "%dir%\opencode.json" set "found_config=%dir%\opencode.json"
 if exist "%dir%\opencode.jsonc" set "found_config=%dir%\opencode.jsonc"
 
 if "%found_config%"=="" (
+  set "new_plugin_path=./.opencode/plugins"
+  if /i "%dir%"=="%USERPROFILE%\.config\opencode" set "new_plugin_path=~/.config/opencode/plugins"
   (
   echo {
   echo   "$schema": "https://opencode.ai/config.json",
-  echo   "plugin": [".opencode/plugins"]
+  echo   "plugin": ["!new_plugin_path!"]
   echo }
   ) > "%dir%\opencode.json"
   echo [OK] Created opencode.json
@@ -287,7 +283,7 @@ if "%found_config%"=="" (
 )
 
 :: Use PowerShell to check and update JSON config
-set "plugin_path=.opencode\plugins"
+set "plugin_path=./.opencode/plugins"
 if /i "%dir%"=="%USERPROFILE%\.config\opencode" set "plugin_path=~/.config/opencode/plugins"
 
 powershell -NoProfile -Command ^
