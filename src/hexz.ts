@@ -748,16 +748,18 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
     "chat.message": async (_input, output) => {
       const text = getMessageText(output.parts);
       state.lastUserMessage = text;
-      if (text.includes("HEXZ_ACTIVATE") || /engage\s+hexz/i.test(text)) {
+      if (text.includes("HEXZ_ACTIVATE") || text.trim() === "/active" || /engage\s+hexz/i.test(text)) {
         state.active = true;
         for (const part of output.parts) {
-          if (part.text) part.text = part.text.replace(/HEXZ_ACTIVATE/gi, "").trim();
+          if (part.text) part.text = part.text.replace(/HEXZ_ACTIVATE|\/active/gi, "").trim();
+          if (part.text === "") part.text = "HEXZ mode activated.";
         }
       }
-      if (text.includes("HEXZ_DEACTIVATE") || /revert\s+to\s+default/i.test(text)) {
+      if (text.includes("HEXZ_DEACTIVATE") || text.trim() === "/off" || /revert\s+to\s+default/i.test(text)) {
         state.active = false;
         for (const part of output.parts) {
-          if (part.text) part.text = part.text.replace(/HEXZ_DEACTIVATE/gi, "").trim();
+          if (part.text) part.text = part.text.replace(/HEXZ_DEACTIVATE|\/off/gi, "").trim();
+          if (part.text === "") part.text = "HEXZ mode deactivated.";
         }
       }
     },
@@ -765,6 +767,10 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
       if (!state.active) return;
       if (output.system.some((s: string) => s.includes("HEXZ"))) return;
       output.system.push(SYSTEM_PROMPT);
+    },
+    "command.execute.before": async (input, _output) => {
+      if (input.command === "active") state.active = true;
+      if (input.command === "off") state.active = false;
     },
     "chat.params": async (_input, output) => {
       if (!state.active) return;
