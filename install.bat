@@ -28,9 +28,9 @@ goto :usage
 if "%DEST%"=="" set "DEST=."
 
 echo.
-echo   ╔═════════════════════════╗
-echo   ║     HEXZ - OpenCode     ║
-echo   ╚═════════════════════════╝
+echo   +-------------------------+
+echo   ^|     HEXZ - OpenCode     ^|
+echo   +-------------------------+
 echo.
 
 :preflight_bun
@@ -40,24 +40,17 @@ if %errorlevel% equ 0 (
   echo [OK] bun !BUN_VER!
   goto :preflight_git
 )
-echo [WARN] bun not found. Installing...
-where curl >nul 2>nul
-if %errorlevel% equ 0 (
-  curl -fsSL https://bun.sh/install | bash
-  goto :bun_check_installed
+echo [WARN] bun not found. Installing via PowerShell...
+powershell -NoProfile -Command "& { iwr https://bun.sh/install.ps1 -UseBasicParsing | iex }"
+if %errorlevel% neq 0 (
+  echo [FAIL] bun installation failed.
+  echo   Install manually: https://bun.sh
+  exit /b 1
 )
-where wget >nul 2>nul
-if %errorlevel% equ 0 (
-  wget -qO- https://bun.sh/install | bash
-  goto :bun_check_installed
-)
-echo [FAIL] Cannot install bun: no curl or wget found.
-echo   Install manually: https://bun.sh
-exit /b 1
 
 :bun_check_installed
 set "BUN_INSTALL=%USERPROFILE%\.bun"
-set "PATH=%BUN_INSTALL%\bin;%PATH%"
+set "PATH=%BUN_INSTALL%\bin;%BUN_INSTALL%;%PATH%"
 where bun >nul 2>nul
 if %errorlevel% neq 0 (
   echo [FAIL] bun installation failed.
