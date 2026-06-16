@@ -2,7 +2,7 @@ import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-export const VERSION = "1.3.0";
+export const VERSION = "1.4.0";
 function fileExistsSync(p: string): boolean {
   try { return existsSync(p); } catch { return false; }
 }
@@ -30,6 +30,50 @@ function* globSync(pattern: string, cwd: string): Generator<string> {
       if (match && statSync(fullPath).isFile()) yield fullPath;
     }
   } catch {}
+}
+
+const CRAFT_DEFAULT_SECTIONS = ["typography", "color", "anti-ai-slop"];
+const DESIGN_DIR = join(import.meta.dir!, "design");
+
+function readCraftSection(dir: string, section: string): string {
+  const path = join(dir, "craft", `${section}.md`);
+  const content = readFile(path);
+  if (content === null) return "";
+  const lines = content.split("\n").filter(l => !l.startsWith("> ")).slice(0, 60);
+  return lines.join("\n").trim();
+}
+
+function readDesignSystemDESIGN(dir: string, slug: string): string {
+  const path = join(dir, "design-systems", slug, "DESIGN.md");
+  const content = readFile(path);
+  if (content === null) return "";
+  const lines = content.split("\n").filter(l => !l.startsWith("> ")).slice(0, 120);
+  return lines.join("\n").trim();
+}
+
+function readOpenDesignTemplate(dir: string, slug: string): string {
+  const templateDir = join(dir, "design-templates", slug);
+  const htmlFiles: string[] = [];
+  const mdFiles: string[] = [];
+  try {
+    const entries = readdirSync(templateDir);
+    for (const entry of entries) {
+      if (entry.endsWith(".html")) htmlFiles.push(entry);
+      else if (entry.endsWith(".md")) mdFiles.push(entry);
+    }
+  } catch { return ""; }
+  for (const files of [htmlFiles, mdFiles]) {
+    for (const f of files) {
+      const content = readFile(join(templateDir, f));
+      if (content !== null) return content.slice(0, 3000).trim();
+    }
+  }
+  return "";
+}
+
+function readUserDESIGNMD(projectDir: string): string {
+  const path = join(projectDir, "DESIGN.md");
+  return readFile(path) ?? "";
 }
 interface MessagePart {
   type?: string;
@@ -341,175 +385,40 @@ async function scanForSecrets(target: string): Promise<string> {
   }
   return findings.length > 0 ? findings.join("\n") : "No secret patterns detected.";
 }
-function generateDesignScaffold(surface: string, brief: string, designSystem?: string): string {
-  const colorScheme =
-    designSystem === "light"
-      ? { bg: "#FFFFFF", fg: "#000000", accent: "#0066CC", muted: "#666666" }
-      : { bg: "#000000", fg: "#FFFFFF", accent: "#E0E0E0", muted: "#999999" };
-  const baseStyles = `
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: ${colorScheme.bg}; color: ${colorScheme.fg}; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-    h1 { font-size: 2.5rem; margin-bottom: 1rem; }
-    h2 { font-size: 1.5rem; margin-bottom: 0.75rem; color: ${colorScheme.muted}; }
-    p { line-height: 1.6; margin-bottom: 1rem; }
-    .btn { display: inline-block; padding: 0.75rem 1.5rem; background: ${colorScheme.accent}; color: ${colorScheme.bg}; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
-    .btn:hover { opacity: 0.9; }
-  `;
-  let body = "";
-  switch (surface) {
-    case "web":
-      body = `
-        <header style="padding: 2rem; border-bottom: 1px solid ${colorScheme.muted};">
-          <div class="container">
-            <h1>${brief}</h1>
-            <nav style="margin-top: 1rem;">
-              <a href="#" style="margin-right: 1rem; color: ${colorScheme.accent};">Home</a>
-              <a href="#" style="margin-right: 1rem; color: ${colorScheme.accent};">Features</a>
-              <a href="#" style="margin-right: 1rem; color: ${colorScheme.accent};">Pricing</a>
-              <a href="#" style="color: ${colorScheme.accent};">Contact</a>
-            </nav>
-          </div>
-        </header>
-        <main class="container" style="padding: 4rem 2rem;">
-          <section style="text-align: center; margin-bottom: 4rem;">
-            <h2>Welcome to ${brief}</h2>
-            <p style="max-width: 600px; margin: 1rem auto;">This is a scaffold for your web application. Replace this content with your actual design.</p>
-            <button class="btn">Get Started</button>
-          </section>
-          <section style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem;">
-            <div style="padding: 1.5rem; border: 1px solid ${colorScheme.muted}; border-radius: 8px;">
-              <h3>Feature 1</h3>
-              <p>Description of feature one.</p>
-            </div>
-            <div style="padding: 1.5rem; border: 1px solid ${colorScheme.muted}; border-radius: 8px;">
-              <h3>Feature 2</h3>
-              <p>Description of feature two.</p>
-            </div>
-            <div style="padding: 1.5rem; border: 1px solid ${colorScheme.muted}; border-radius: 8px;">
-              <h3>Feature 3</h3>
-              <p>Description of feature three.</p>
-            </div>
-          </section>
-        </main>
-      `;
-      break;
-    case "mobile":
-      body = `
-        <div style="max-width: 375px; margin: 0 auto; border: 2px solid ${colorScheme.muted}; border-radius: 20px; overflow: hidden; height: 812px;">
-          <div style="padding: 1rem; background: ${colorScheme.muted}; color: ${colorScheme.bg}; text-align: center;">
-            <div style="width: 100px; height: 24px; background: ${colorScheme.bg}; border-radius: 12px; margin: 0 auto;"></div>
-          </div>
-          <div style="padding: 1.5rem;">
-            <h1 style="font-size: 1.5rem;">${brief}</h1>
-            <p style="margin-top: 1rem;">Mobile app scaffold. Replace with your actual content.</p>
-            <button class="btn" style="width: 100%; margin-top: 2rem;">Action</button>
-            <div style="margin-top: 2rem;">
-              <div style="padding: 1rem; border-bottom: 1px solid ${colorScheme.muted};">Item 1</div>
-              <div style="padding: 1rem; border-bottom: 1px solid ${colorScheme.muted};">Item 2</div>
-              <div style="padding: 1rem;">Item 3</div>
-            </div>
-          </div>
-        </div>
-      `;
-      break;
-    case "dashboard":
-      body = `
-        <div style="display: flex; min-height: 100vh;">
-          <aside style="width: 250px; background: ${colorScheme.muted}; color: ${colorScheme.bg}; padding: 1.5rem;">
-            <h2 style="color: ${colorScheme.bg}; margin-bottom: 2rem;">Dashboard</h2>
-            <nav>
-              <a href="#" style="display: block; padding: 0.75rem; color: ${colorScheme.bg}; margin-bottom: 0.5rem;">Overview</a>
-              <a href="#" style="display: block; padding: 0.75rem; color: ${colorScheme.bg}; margin-bottom: 0.5rem;">Analytics</a>
-              <a href="#" style="display: block; padding: 0.75rem; color: ${colorScheme.bg}; margin-bottom: 0.5rem;">Users</a>
-              <a href="#" style="display: block; padding: 0.75rem; color: ${colorScheme.bg};">Settings</a>
-            </nav>
-          </aside>
-          <main style="flex: 1; padding: 2rem;">
-            <h1>${brief}</h1>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 2rem;">
-              <div style="padding: 1.5rem; background: ${colorScheme.accent}; color: ${colorScheme.bg}; border-radius: 8px;">
-                <div style="font-size: 2rem; font-weight: bold;">1,234</div>
-                <div>Total Users</div>
-              </div>
-              <div style="padding: 1.5rem; background: ${colorScheme.accent}; color: ${colorScheme.bg}; border-radius: 8px;">
-                <div style="font-size: 2rem; font-weight: bold;">567</div>
-                <div>Active Today</div>
-              </div>
-              <div style="padding: 1.5rem; background: ${colorScheme.accent}; color: ${colorScheme.bg}; border-radius: 8px;">
-                <div style="font-size: 2rem; font-weight: bold;">89%</div>
-                <div>Satisfaction</div>
-              </div>
-              <div style="padding: 1.5rem; background: ${colorScheme.accent}; color: ${colorScheme.bg}; border-radius: 8px;">
-                <div style="font-size: 2rem; font-weight: bold;">$12k</div>
-                <div>Revenue</div>
-              </div>
-            </div>
-          </main>
-        </div>
-      `;
-      break;
-    case "deck":
-      body = `
-        <div style="width: 1280px; height: 720px; margin: 0 auto; padding: 4rem; display: flex; flex-direction: column; justify-content: center;">
-          <h1 style="font-size: 3rem; margin-bottom: 2rem;">${brief}</h1>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4rem;">
-            <div>
-              <h2 style="margin-bottom: 1rem;">Key Points</h2>
-              <ul style="list-style: none; padding: 0;">
-                <li style="padding: 0.5rem 0; border-bottom: 1px solid ${colorScheme.muted};">First important point</li>
-                <li style="padding: 0.5rem 0; border-bottom: 1px solid ${colorScheme.muted};">Second important point</li>
-                <li style="padding: 0.5rem 0;">Third important point</li>
-              </ul>
-            </div>
-            <div style="background: ${colorScheme.muted}; height: 300px; display: flex; align-items: center; justify-content: center; border-radius: 8px;">
-              <span style="color: ${colorScheme.bg};">Chart/Visual</span>
-            </div>
-          </div>
-        </div>
-      `;
-      break;
-    case "email":
-      body = `
-        <div style="max-width: 600px; margin: 0 auto; padding: 2rem; background: ${colorScheme.bg};">
-          <div style="text-align: center; padding: 2rem 0; border-bottom: 1px solid ${colorScheme.muted};">
-            <h1 style="font-size: 1.5rem;">${brief}</h1>
-          </div>
-          <div style="padding: 2rem 0;">
-            <p>Hello,</p>
-            <p>This is a scaffold for your email template. Replace this content with your actual message.</p>
-            <div style="text-align: center; margin: 2rem 0;">
-              <a href="#" class="btn">Call to Action</a>
-            </div>
-            <p style="color: ${colorScheme.muted}; font-size: 0.875rem;">If you didn't request this email, please ignore it.</p>
-          </div>
-          <div style="text-align: center; padding: 1rem 0; border-top: 1px solid ${colorScheme.muted}; color: ${colorScheme.muted}; font-size: 0.75rem;">
-            <p>Company Name • Address • City, State ZIP</p>
-          </div>
-        </div>
-      `;
-      break;
-    default:
-      body = `
-        <div class="container">
-          <h1>${brief}</h1>
-          <p>Custom scaffold for: ${surface}</p>
-        </div>
-      `;
-  }
+function generateDesignScaffoldHTML(designSpec: string): string {
+  const colorScheme = { bg: "#fafafa", fg: "#111111", accent: "#2F6FEB", muted: "#6B6B6B", border: "#E5E5E5", surface: "#FFFFFF" };
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${brief} — HEXZ Design Scaffold</title>
-  <style>${baseStyles}</style>
+  <title>HEXZ Design Scaffold</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: ${colorScheme.bg}; color: ${colorScheme.fg}; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+    h1 { font-size: 3rem; font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.5rem; font-weight: 600; line-height: 1.3; margin-bottom: 1rem; color: ${colorScheme.muted}; }
+    p { font-size: 1rem; line-height: 1.6; max-width: 65ch; margin-bottom: 1rem; }
+    .btn { display: inline-flex; align-items: center; padding: 0.625rem 1rem; background: ${colorScheme.accent}; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: 510; font-size: 0.9375rem; line-height: 1.5; letter-spacing: 0.02em; }
+    .btn:hover { opacity: 0.9; }
+    header { padding: 2rem; border-bottom: 1px solid ${colorScheme.border}; }
+    header nav a { margin-right: 1rem; color: ${colorScheme.accent}; text-decoration: none; }
+    header nav a:hover { text-decoration: underline; }
+    section { padding: 5rem 2rem; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; }
+    .card { background: ${colorScheme.surface}; border: 1px solid ${colorScheme.border}; border-radius: 12px; padding: 1.25rem; }
+    .card h3 { font-size: 1.25rem; font-weight: 590; margin-bottom: 0.5rem; }
+    .card p { font-size: 0.9375rem; color: ${colorScheme.muted}; }
+    .hero { text-align: center; padding: 6rem 2rem; }
+    .hero p { margin: 1rem auto 2rem; }
+    .badge { display: inline-block; background: ${colorScheme.accent}; color: #fff; font-size: 0.8125rem; font-weight: 510; padding: 0.25rem 0.75rem; border-radius: 4px; letter-spacing: 0.02em; margin-bottom: 1rem; }
+  </style>
 </head>
-<body>
-${body}
-</body>
+<body>${designSpec}</body>
 </html>`;
 }
+
 function redactSecrets(text: string): string {
   const redactionPatterns = [
     {
@@ -1040,28 +949,91 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
       }),
       hexz_design: tool({
         description:
-          "Generate design scaffold as single HTML. Surfaces: web, mobile, dashboard, deck, email.",
+          "Generate design scaffold following open-design craft rules. Optionally apply a design system, template, or project DESIGN.md. Default craft rules: typography, color, anti-ai-slop.",
         args: {
-          surface: tool.schema.string(),
           brief: tool.schema.string(),
+          surface: tool.schema.string().optional(),
           design_system: tool.schema.string().optional(),
+          template: tool.schema.string().optional(),
+          craft_sections: tool.schema.string().optional(),
         },
-        async execute(args, _ctx) {
+        async execute(args, ctx) {
           if (!state.active) return "HEXZ not active. Type /active first.";
-          const specs: Record<string, string> = {
-            web: "1440px single page",
-            mobile: "375x812 iPhone frame",
-            dashboard: "sidebar + KPI cards",
-            deck: "1280x720 slides",
-            email: "600px table layout",
-          };
-          const html = generateDesignScaffold(args.surface, args.brief, args.design_system);
-          return `[HEXZ Design]
-Surface: ${specs[args.surface] ?? args.surface}
-Brief: ${args.brief}
-Output: single HTML, no external deps
-Style: ${args.design_system ?? "dark"} mode
-${html}`;
+          const sections = (args.craft_sections ?? CRAFT_DEFAULT_SECTIONS.join(","))
+            .split(",").map(s => s.trim()).filter(Boolean);
+          const lines: string[] = [];
+          lines.push(`[HEXZ Design] v${VERSION}`);
+          lines.push(`Brief: ${args.brief}`);
+          lines.push(`Surface: ${args.surface ?? "web"}`);
+          lines.push("");
+          const craftParts: string[] = [];
+          for (const section of sections) {
+            const content = readCraftSection(DESIGN_DIR, section);
+            if (content) craftParts.push(`## ${section}\n${content}`);
+          }
+          if (craftParts.length > 0) {
+            lines.push("══ Craft Rules ══");
+            for (const part of craftParts) lines.push(part);
+            lines.push("");
+          }
+          if (args.design_system) {
+            const ds = readDesignSystemDESIGN(DESIGN_DIR, args.design_system);
+            if (ds) {
+              lines.push(`══ Design System: ${args.design_system} ══`);
+              lines.push(ds);
+              lines.push("");
+            } else {
+              lines.push(`[Design system '${args.design_system}' not found.]`);
+              lines.push("");
+            }
+          }
+          if (args.template) {
+            const tpl = readOpenDesignTemplate(DESIGN_DIR, args.template);
+            if (tpl) {
+              lines.push(`══ Template: ${args.template} ══`);
+              lines.push(tpl);
+              lines.push("");
+            } else {
+              lines.push(`[Template '${args.template}' not found.]`);
+              lines.push("");
+            }
+          }
+          const userDesign = readUserDESIGNMD(ctx.directory);
+          if (userDesign) {
+            lines.push("══ Project DESIGN.md ══");
+            lines.push(userDesign.slice(0, 2000));
+            lines.push("");
+          }
+          lines.push("══ Generated Scaffold ══");
+          const scaffoldBody = `<header>
+  <div class="container">
+    <nav>
+      <span class="badge">HEXZ</span>
+      <h1>${args.brief}</h1>
+    </nav>
+  </div>
+</header>
+<main>
+  <section class="hero">
+    <div class="container">
+      <h1>${args.brief}</h1>
+      <p>Your project description goes here. Replace this with your actual content.</p>
+      <button class="btn">Get Started</button>
+    </div>
+  </section>
+  <section>
+    <div class="container">
+      <h2>Features</h2>
+      <div class="grid">
+        <div class="card"><h3>Feature</h3><p>Replace with real content</p></div>
+        <div class="card"><h3>Feature</h3><p>Replace with real content</p></div>
+        <div class="card"><h3>Feature</h3><p>Replace with real content</p></div>
+      </div>
+    </div>
+  </section>
+</main>`;
+          lines.push(generateDesignScaffoldHTML(scaffoldBody));
+          return lines.join("\n");
         },
       }),
       hexz_image: tool({

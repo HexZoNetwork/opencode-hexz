@@ -175,6 +175,9 @@ install_to() {
 
   cp "$SCRIPT_DIR/dist/hexz.js" "$hexzdir/index.js"
   cp "$SCRIPT_DIR/src/hexz.ts" "$hexzdir/index.ts"
+  if [ -d "$SCRIPT_DIR/src/design" ]; then
+    cp -r "$SCRIPT_DIR/src/design" "$hexzdir/design"
+  fi
 
   cat > "$hexzdir/package.json" << 'EOF'
 {
@@ -185,7 +188,7 @@ EOF
   cat > "$plugdir/package.json" << 'EOF'
 {
   "name": "opencode-hexz",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "HEXZ — OpenCode Upgrade Layer",
   "type": "module",
   "main": "index.ts",
@@ -231,6 +234,7 @@ EOF
   echo -e "${GREEN}✓${RESET} ${label}"
   echo -e "    plugins/hexz/index.ts    → ${hexzdir}/index.ts"
   echo -e "    plugins/hexz/index.js    → ${hexzdir}/index.js"
+  echo -e "    plugins/hexz/design/     → ${hexzdir}/design/"
   echo -e "    plugins/package.json     → ${plugdir}/package.json"
   echo -e "    plugins/index.ts         → ${plugdir}/index.ts"
   echo -e "    commands/active.md       → ${dest}/commands/active.md"

@@ -138,9 +138,10 @@ remove_project() {
   rm -rf "$dir/plugins/hexz"
   rm -f "$dir/plugins/package.json" "$dir/plugins/index.ts"
   rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"  # legacy
+
   rm -f "$dir/commands/active.md" "$dir/commands/off.md"
   rmdir "$dir/commands" 2>/dev/null || true
-  rmdir "$dir/plugins" 2>/dev/null || true
+  rmdir "$dir" 2>/dev/null || true
   remove_plugin_from_config "."
   echo -e "${GREEN}✓${RESET} Removed project install"
   removed=1
@@ -173,6 +174,7 @@ remove_global() {
   rm -rf "$dir/plugins/hexz"
   rm -f "$dir/plugins/package.json" "$dir/plugins/index.ts"
   rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"  # legacy
+
   rm -f "$dir/commands/active.md" "$dir/commands/off.md"
   rmdir "$dir/commands" 2>/dev/null || true
   rmdir "$dir/plugins" 2>/dev/null || true
