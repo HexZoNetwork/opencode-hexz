@@ -1,4 +1,3 @@
-// src/hexz.ts
 import { tool } from "@opencode-ai/plugin";
 var state = {
   active: false,

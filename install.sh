@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─── Resolve plugin directory ─────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ─── Colors ───────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
   BOLD="\033[1m"
   GREEN="\033[0;32m"
@@ -17,7 +15,6 @@ else
   BOLD="" GREEN="" CYAN="" YELLOW="" RED="" DIM="" RESET=""
 fi
 
-# ─── Help ──────────────────────────────────────────────────────────────────────
 usage() {
   cat <<EOF
 ${BOLD}HEXZ — OpenCode Upgrade Layer${RESET}
@@ -34,14 +31,13 @@ ${BOLD}Options:${RESET}
   -v, --version    Show plugin version
 
 ${BOLD}Examples:${RESET}
-  ./install.sh                  # Interactive, project-level
-  ./install.sh -g               # Global only
-  ./install.sh /my/project -y   # Non-interactive to project
-  ./install.sh -b               # Both locations
+  ./install.sh
+  ./install.sh -g
+  ./install.sh /my/project -y
+  ./install.sh -b
 EOF
 }
 
-# ─── Parse args ───────────────────────────────────────────────────────────────
 MODE=""
 AUTO_YES=false
 DEST=""
@@ -61,14 +57,12 @@ done
 
 DEST="${DEST:-.}"
 
-# ─── Banner ───────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}${BOLD}  ╔═════════════════════════╗${RESET}"
 echo -e "${CYAN}${BOLD}  ║     HEXZ — OpenCode     ║${RESET}"
 echo -e "${CYAN}${BOLD}  ╚═════════════════════════╝${RESET}"
 echo ""
 
-# ─── Preflight: bun ───────────────────────────────────────────────────────────
 preflight_bun() {
   if command -v bun &>/dev/null; then
     echo -e "${GREEN}✓${RESET} bun $(bun --version)"
@@ -87,7 +81,6 @@ preflight_bun() {
     exit 1
   fi
 
-  # Reload PATH for current session
   export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
   export PATH="$BUN_INSTALL/bin:$PATH"
 
@@ -100,7 +93,6 @@ preflight_bun() {
   echo -e "${GREEN}✓${RESET} bun $(bun --version) installed"
 }
 
-# ─── Preflight: git ───────────────────────────────────────────────────────────
 preflight_git() {
   if command -v git &>/dev/null; then
     echo -e "${GREEN}✓${RESET} git $(git --version | awk '{print $3}')"
@@ -111,7 +103,6 @@ preflight_git() {
   echo "  Install: sudo apt install git"
 }
 
-# ─── Preflight: node (optional) ───────────────────────────────────────────────
 preflight_node() {
   if command -v node &>/dev/null; then
     echo -e "${GREEN}✓${RESET} node $(node --version)"
@@ -120,14 +111,12 @@ preflight_node() {
   fi
 }
 
-# ─── Run preflight ────────────────────────────────────────────────────────────
 echo -e "${BOLD}Preflight checks:${RESET}"
 preflight_bun
 preflight_git
 preflight_node
 echo ""
 
-# ─── Build ────────────────────────────────────────────────────────────────────
 echo -e "${BOLD}Building plugin...${RESET}"
 
 if [ ! -f "$SCRIPT_DIR/package.json" ]; then
@@ -157,7 +146,6 @@ SIZE=$(wc -c < "$SCRIPT_DIR/dist/hexz.js" | tr -d ' ')
 echo -e "${GREEN}✓${RESET} Build complete ${DIM}($SIZE bytes)${RESET}"
 echo ""
 
-# ─── Choose install target ────────────────────────────────────────────────────
 if [ -z "$MODE" ]; then
   if [ "$AUTO_YES" = true ]; then
     MODE="project"
@@ -178,17 +166,14 @@ if [ -z "$MODE" ]; then
   fi
 fi
 
-# ─── Install helper ────────────────────────────────────────────────────────────
 install_to() {
   local dest="$1"
   local label="$2"
 
   mkdir -p "$dest/plugins" "$dest/commands"
 
-  # Copy built plugin
   cp "$SCRIPT_DIR/dist/hexz.js" "$dest/plugins/hexz.js"
 
-  # Command: activate
   cat > "$dest/commands/active.md" << 'EOF'
 ---
 description: Engage HEXZ upgrade layer (anti-slop, security, design, search, marketplace)
@@ -196,7 +181,6 @@ description: Engage HEXZ upgrade layer (anti-slop, security, design, search, mar
 [HEXZ_ACTIVATE] Engage HEXZ upgrade layer. All modules loaded.
 EOF
 
-  # Command: deactivate
   cat > "$dest/commands/off.md" << 'EOF'
 ---
 description: Revert to default opencode behavior
@@ -210,7 +194,6 @@ EOF
   echo -e "    commands/off.md     ${DIM}→ ${dest}/commands/off.md${RESET}"
 }
 
-# ─── Install ──────────────────────────────────────────────────────────────────
 echo -e "${BOLD}Installing:${RESET}"
 
 case "$MODE" in
@@ -227,7 +210,6 @@ case "$MODE" in
     ;;
 esac
 
-# ─── Verify opencode.json ────────────────────────────────────────────────────
 verify_opencode_json() {
   local dir="$1"
   local json="$dir/opencode.json"
@@ -264,7 +246,6 @@ case "$MODE" in
     ;;
 esac
 
-# ─── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}  HEXZ installed successfully!${RESET}"
 echo ""

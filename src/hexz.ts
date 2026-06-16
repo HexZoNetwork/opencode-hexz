@@ -1,7 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 
-// ─── State ────────────────────────────────────────────────────────────────────
 const state = {
   active: false,
   lastUserMessage: "",
@@ -10,7 +9,6 @@ const state = {
   builds: 0,
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function sanitize(input: string): string {
   return input.replace(/[<>"'`;|&$(){}]/g, "").trim().slice(0, 500)
 }
@@ -26,7 +24,6 @@ function getMessageText(parts: any[]): string {
   return ""
 }
 
-// ─── Web Search ───────────────────────────────────────────────────────────────
 async function webSearch(query: string): Promise<string> {
   const q = sanitize(query)
   if (!q) return "Empty query"
@@ -49,7 +46,6 @@ async function webSearch(query: string): Promise<string> {
   }
 }
 
-// ─── Topic Guessing ───────────────────────────────────────────────────────────
 function guessTopic(cmd: string): string {
   const l = cmd.toLowerCase()
   const y = new Date().getFullYear()
@@ -74,7 +70,6 @@ function guessTopic(cmd: string): string {
   return state.lastUserMessage.slice(0, 80) || "web development"
 }
 
-// ─── Build Detection ──────────────────────────────────────────────────────────
 const BUILD_PATTERNS = [
   "npm install", "npm create", "npx create", "yarn add", "yarn create",
   "bun install", "bun add", "bun create", "bun init",
@@ -88,10 +83,6 @@ function isBuild(cmd: string): boolean {
   const l = cmd.toLowerCase()
   return BUILD_PATTERNS.some(p => l.includes(p))
 }
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// THE PROMPT — this is what actually changes the AI's behavior
-// ═══════════════════════════════════════════════════════════════════════════════
 
 const SYSTEM_PROMPT = `
 [HEXZ MODE — SENIOR ENGINEER PERSONA]
@@ -191,10 +182,6 @@ Personality: Senior engineer, no fluff, ships code.
 Workflow: search → plan → build → review → test.
 Active since: ${new Date(state.startTime).toISOString()}
 `.trim()
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// PLUGIN
-// ═══════════════════════════════════════════════════════════════════════════════
 
 export const HexzPlugin: Plugin = async ({ client, $, directory }) => {
   client.app.log?.({

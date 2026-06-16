@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─── Colors ───────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
   BOLD="\033[1m"
   GREEN="\033[0;32m"
@@ -13,7 +12,6 @@ else
   BOLD="" GREEN="" CYAN="" YELLOW="" RED="" RESET=""
 fi
 
-# ─── Help ──────────────────────────────────────────────────────────────────────
 usage() {
   cat <<EOF
 ${BOLD}HEXZ Uninstall${RESET}
@@ -29,7 +27,6 @@ ${BOLD}Options:${RESET}
 EOF
 }
 
-# ─── Parse args ───────────────────────────────────────────────────────────────
 FORCE=false
 TARGET="all"
 
@@ -49,7 +46,6 @@ echo ""
 
 removed=0
 
-# ─── Remove project-level ─────────────────────────────────────────────────────
 remove_project() {
   local found=0
   for f in ".opencode/plugins/hexz.js" ".opencode/plugins/hexz.ts"; do
@@ -80,7 +76,6 @@ remove_project() {
   removed=1
 }
 
-# ─── Remove global ────────────────────────────────────────────────────────────
 remove_global() {
   local dir="$HOME/.config/opencode"
   local found=0
@@ -113,7 +108,6 @@ remove_global() {
   removed=1
 }
 
-# ─── Execute ──────────────────────────────────────────────────────────────────
 case "$TARGET" in
   all)
     remove_project
@@ -127,7 +121,6 @@ case "$TARGET" in
     ;;
 esac
 
-# ─── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 if [ "$removed" -eq 1 ]; then
   echo -e "${GREEN}${BOLD}  HEXZ removed.${RESET} Restart opencode."
