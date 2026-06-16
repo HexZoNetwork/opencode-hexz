@@ -3,7 +3,7 @@ node_modules
 out
 dist
 *.tgz
-
+.opencode/
 coverage
 *.lcov
 
