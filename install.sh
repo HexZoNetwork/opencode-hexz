@@ -9,10 +9,9 @@ if [ -t 1 ]; then
   CYAN="\033[0;36m"
   YELLOW="\033[0;33m"
   RED="\033[0;31m"
-  DIM="\033[2m"
   RESET="\033[0m"
 else
-  BOLD="" GREEN="" CYAN="" YELLOW="" RED="" DIM="" RESET=""
+  BOLD="" GREEN="" CYAN="" YELLOW="" RED="" RESET=""
 fi
 
 usage() {
@@ -24,7 +23,7 @@ ${BOLD}Usage:${RESET}
 
 ${BOLD}Options:${RESET}
   -g, --global     Install to ~/.config/opencode/ only
-  -p, --project    Install to ./opencode/ only (default)
+  -p, --project    Install to ./.opencode/ only (default)
   -b, --both       Install globally and locally
   -y, --yes        Accept all defaults, no prompts
   -h, --help       Show this help
@@ -50,8 +49,7 @@ while [ $# -gt 0 ]; do
     -y|--yes)      AUTO_YES=true;  shift ;;
     -h|--help)     usage; exit 0 ;;
     -v|--version)  grep '"version"' "$SCRIPT_DIR/package.json" | head -1; exit 0 ;;
-    -*)            echo "${RED}Unknown flag: $1${RESET}"; usage; exit 1 ;;
-    *)             DEST="$1"; shift ;;
+    *)             echo "${RED}Unknown flag: $1${RESET}"; usage; exit 1 ;;
   esac
 done
 
@@ -107,7 +105,7 @@ preflight_node() {
   if command -v node &>/dev/null; then
     echo -e "${GREEN}✓${RESET} node $(node --version)"
   else
-    echo -e "${DIM}  node not found (optional)${RESET}"
+    echo -e "  node not found (optional)"
   fi
 }
 
@@ -151,7 +149,7 @@ if [ -z "$MODE" ]; then
     MODE="project"
   else
     echo -e "${BOLD}Install target:${RESET}"
-    echo "  1) Project-level  →  ./opencode/"
+    echo "  1) Project-level  →  ./.opencode/"
     echo "  2) Global          →  ~/.config/opencode/"
     echo "  3) Both"
     echo ""
@@ -178,20 +176,20 @@ install_to() {
 ---
 description: Engage HEXZ upgrade layer (anti-slop, security, design, search, marketplace)
 ---
-[HEXZ_ACTIVATE] Engage HEXZ upgrade layer. All modules loaded.
+Type your message naturally. HEXZ activates on keywords like "build", "fix", "add feature", "create", "implement".
 EOF
 
   cat > "$dest/commands/off.md" << 'EOF'
 ---
 description: Revert to default opencode behavior
 ---
-[HEXZ_DEACTIVATE] Revert to default opencode behavior.
+HEXZ_DEACTIVATE
 EOF
 
   echo -e "${GREEN}✓${RESET} ${label}"
-  echo -e "    plugins/hexz.js     ${DIM}→ ${dest}/plugins/hexz.js${RESET}"
-  echo -e "    commands/active.md  ${DIM}→ ${dest}/commands/active.md${RESET}"
-  echo -e "    commands/off.md     ${DIM}→ ${dest}/commands/off.md${RESET}"
+  echo -e "    plugins/hexz.js     → ${dest}/plugins/hexz.js"
+  echo -e "    commands/active.md  → ${dest}/commands/active.md"
+  echo -e "    commands/off.md     → ${dest}/commands/off.md"
 }
 
 echo -e "${BOLD}Installing:${RESET}"
@@ -225,25 +223,38 @@ add_plugin_to_config() {
   local config_file="$1"
   local plugin_path="$2"
 
-  bun -e "
-    const fs = require('fs');
-    const raw = fs.readFileSync('$config_file', 'utf8');
-    let config;
-    try { config = JSON.parse(raw); } catch {
-      const clean = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-      try { config = JSON.parse(clean); } catch { config = {}; }
-    }
-    if (!config.plugin) config.plugin = [];
-    if (!Array.isArray(config.plugin)) config.plugin = [config.plugin];
-    const hexzPattern = /hexz/;
-    if (config.plugin.some(p => typeof p === 'string' && hexzPattern.test(p))) {
-      console.log('already');
-      process.exit(0);
-    }
-    config.plugin.push('$plugin_path');
-    fs.writeFileSync('$config_file', JSON.stringify(config, null, 2) + '\n');
-    console.log('added');
-  " 2>/dev/null
+  if [ ! -f "$config_file" ]; then
+    cat > "$config_file" << EOF
+{
+  "\$schema": "https://opencode.ai/config.json",
+  "plugin": ["$plugin_path"]
+}
+EOF
+    echo -e "${GREEN}✓${RESET} Created $(basename "$config_file")"
+    return 0
+  fi
+
+  local raw
+  raw=$(<"$config_file")
+
+  if echo "$raw" | grep -q "hexz"; then
+    echo -e "${GREEN}✓${RESET} $(basename "$config_file") already configured"
+    return 0
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+
+  if echo "$raw" | grep -q '"plugin"'; then
+    # Has plugin array - insert before closing bracket of plugin array
+    echo "$raw" | sed "s|\"plugin\": \[|\"plugin\": [\n    \"$plugin_path\",|" > "$tmpfile"
+  else
+    # No plugin key - add it before closing brace
+    echo "$raw" | sed "s|}$|,\n  \"plugin\": [\"$plugin_path\"]\n}|" > "$tmpfile"
+  fi
+
+  mv "$tmpfile" "$config_file"
+  echo -e "${GREEN}✓${RESET} Added hexz to $(basename "$config_file")"
 }
 
 verify_opencode_config() {
@@ -252,13 +263,7 @@ verify_opencode_config() {
   local config_file
 
   if config_file=$(find_opencode_config "$dir"); then
-    local result
-    result=$(add_plugin_to_config "$config_file" "$plugin_path")
-    if [ "$result" = "already" ]; then
-      echo -e "${GREEN}✓${RESET} $(basename "$config_file") already configured"
-    else
-      echo -e "${GREEN}✓${RESET} Added hexz to $(basename "$config_file")"
-    fi
+    add_plugin_to_config "$config_file" "$plugin_path"
   else
     cat > "$dir/opencode.json" << EOF
 {
@@ -300,5 +305,5 @@ echo -e "    ${CYAN}hexz_design${RESET}    Design scaffolds"
 echo -e "    ${CYAN}hexz_image${RESET}     Image analysis"
 echo -e "    ${CYAN}hexz_mkp${RESET}       Plugin marketplace"
 echo ""
-echo -e "  ${DIM}https://github.com/hexzonetwork/opencode-hexz${RESET}"
+echo -e "  https://github.com/hexzonetwork/opencode-hexz"
 echo ""
