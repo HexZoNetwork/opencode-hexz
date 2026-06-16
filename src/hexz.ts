@@ -1,7 +1,36 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
-import { Database } from "bun:sqlite";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 export const VERSION = "1.3.0";
+function fileExistsSync(p: string): boolean {
+  try { return existsSync(p); } catch { return false; }
+}
+function readFile(p: string): string | null {
+  try { return readFileSync(p, "utf-8"); } catch { return null; }
+}
+function writeFile(p: string, content: string): void {
+  try { writeFileSync(p, content, "utf-8"); } catch {}
+}
+function* globSync(pattern: string, cwd: string): Generator<string> {
+  const parts = pattern.split("/");
+  const filePart = parts[parts.length - 1]!;
+  const dirPart = parts.slice(0, -1).join("/");
+  const baseDir = dirPart ? join(cwd, dirPart) : cwd;
+  try {
+    const entries = readdirSync(baseDir);
+    for (const entry of entries) {
+      const fullPath = join(baseDir, entry);
+      let match = false;
+      if (filePart === "*") match = true;
+      else if (filePart === "**/*") match = statSync(fullPath).isDirectory();
+      else if (filePart.startsWith("*.")) match = entry.endsWith(filePart.slice(1));
+      else if (filePart.endsWith("/")) match = statSync(fullPath).isDirectory();
+      else match = entry === filePart;
+      if (match && statSync(fullPath).isFile()) yield fullPath;
+    }
+  } catch {}
+}
 interface MessagePart {
   type?: string;
   text?: string;
@@ -171,12 +200,7 @@ function isInstall(cmd: string): boolean {
   return INSTALL_PATTERNS.some((p) => l.includes(p));
 }
 async function fileExists(path: string): Promise<boolean> {
-  try {
-    await Bun.file(path).exists();
-    return true;
-  } catch {
-    return false;
-  }
+  return fileExistsSync(path);
 }
 async function detectProjectType(dir: string): Promise<string[]> {
   const types: string[] = [];
@@ -303,11 +327,8 @@ async function scanForSecrets(target: string): Promise<string> {
   ];
   const findings: string[] = [];
   try {
-  
-  
-    const file = Bun.file(target);
-    if (await file.exists()) {
-      const content = await file.text();
+    const content = readFile(target);
+    if (content !== null) {
       for (const pattern of secretPatterns) {
         const matches = content.match(pattern.regex);
         if (matches) {
@@ -610,17 +631,30 @@ Workflow: search → plan → build → review → test.
 Version: ${VERSION}
 Active since: ${new Date(state.startTime).toISOString()}
 `.trim();
-export const HexzPlugin: Plugin = async ({ client, $ }) => {
-  const db = new Database(".opencode/hexz-memory.db");
-  db.exec("CREATE TABLE IF NOT EXISTS memory (key TEXT PRIMARY KEY, value TEXT)");
+export const HexzPlugin: Plugin = async (input: any, options?: any) => {
+  const { client, $ } = input || {} as any;
+  const dbDir = `${process.env.HOME}/.config/opencode`;
+  const dbPath = `${dbDir}/hexz-memory.json`;
+  const memStore = new Map<string, string>();
+  try { mkdirSync(dbDir, { recursive: true }); } catch {}
+  try {
+    const raw = readFileSync(dbPath, "utf-8");
+    const data = JSON.parse(raw);
+    for (const [k, v] of Object.entries(data)) {
+      if (typeof v === "string") memStore.set(k, v);
+    }
+  } catch {}
+  function saveMemory(): void {
+    try {
+      writeFileSync(dbPath, JSON.stringify(Object.fromEntries(memStore)));
+    } catch {}
+  }
   function getMemory(key: string): string | null {
-    const row = db.query("SELECT value FROM memory WHERE key = ?").get(key) as
-      | { value: string }
-      | undefined;
-    return row?.value ?? null;
+    return memStore.get(key) ?? null;
   }
   function setMemory(key: string, value: string): void {
-    db.query("INSERT OR REPLACE INTO memory (key, value) VALUES (?, ?)").run(key, value);
+    memStore.set(key, value);
+    saveMemory();
   }
   async function sendNotification(title: string, message: string): Promise<void> {
     try {
@@ -648,7 +682,7 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
       const owner = parts[0]!.replace(/[^a-zA-Z0-9._-]/g, "");
       const repo = parts[1]!.replace(/[^a-zA-Z0-9._-]/g, "");
       if (!owner || !repo) return "Invalid owner or repo name";
-      const exists = await Bun.file(`${pluginsDir}/${repo}/package.json`).exists();
+      const exists = fileExistsSync(`${pluginsDir}/${repo}/package.json`);
       if (exists) return `Plugin '${repo}' already installed. Use 'mkp remove:${repo}' first.`;
       try {
         await $`git clone https://github.com/${owner}/${repo}.git ${pluginsDir}/${repo} --depth 1`;
@@ -696,7 +730,7 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
       const content = match[2]!;
       if (!name) return "Invalid skill name";
       const skillContent = `---\ndescription: ${name}\n---\n${content}`;
-      await Bun.write(`${commandsDir}/${name}.md`, skillContent);
+      writeFile(`${commandsDir}/${name}.md`, skillContent);
       return `Created skill '${name}'. Use /${name} to run it.`;
     }
   
@@ -715,13 +749,11 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
         for (const sub of searchDirs) {
           const dir = sub ? `${tmpDir}/${sub}` : tmpDir;
           try {
-            const glob = new Bun.Glob("**/*.md");
-            for await (const entry of glob.scan({ cwd: dir, absolute: true })) {
-              const file = Bun.file(entry);
-              const text = await file.text();
-              if (!text.includes("---")) continue;
-              const filename = entry.split("/").pop()!;
-              await Bun.write(`${commandsDir}/${filename}`, text);
+          for (const mdFile of globSync("**/*.md", dir)) {
+              const text = readFile(mdFile);
+              if (text === null || !text.includes("---")) continue;
+              const filename = mdFile.split("/").pop()!;
+              writeFile(`${commandsDir}/${filename}`, text);
               skillsInstalled.push(filename.replace(/\.md$/, ""));
             }
           } catch {
@@ -747,15 +779,13 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
     lines.push("Plugins:");
     let pluginCount = 0;
     try {
-      const glob = new Bun.Glob("*/package.json");
-      for await (const _ of glob.scan({ cwd: pluginsDir })) {
-      
-      }
-    
-      const dirGlob = new Bun.Glob("*");
-      for await (const entry of dirGlob.scan({ cwd: pluginsDir, onlyFiles: false })) {
-        lines.push(`  - ${entry}`);
-        pluginCount++;
+      const entries = readdirSync(pluginsDir);
+      for (const entry of entries) {
+        const fullPath = join(pluginsDir, entry);
+        if (statSync(fullPath).isDirectory() && fileExistsSync(join(fullPath, "package.json"))) {
+          lines.push(`  - ${entry}`);
+          pluginCount++;
+        }
       }
       if (pluginCount === 0) lines.push("  (none)");
     } catch {
@@ -765,11 +795,13 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
     lines.push("\nSkills:");
     let skillCount = 0;
     try {
-      const glob = new Bun.Glob("*.md");
-      for await (const entry of glob.scan({ cwd: commandsDir })) {
-        const name = entry.replace(/\.md$/, "");
-        lines.push(`  - ${name}`);
-        skillCount++;
+      const entries = readdirSync(commandsDir);
+      for (const entry of entries) {
+        if (entry.endsWith(".md")) {
+          const name = entry.replace(/\.md$/, "");
+          lines.push(`  - ${name}`);
+          skillCount++;
+        }
       }
       if (skillCount === 0) lines.push("  (none)");
     } catch {
@@ -794,14 +826,9 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
     }
   
     const skillPath = `${commandsDir}/${safeName}.md`;
-    try {
-      const exists = await Bun.file(skillPath).exists();
-      if (exists) {
-        await $`rm -f ${skillPath}`;
-        return `Removed skill '${safeName}'. Restart opencode.`;
-      }
-    } catch {
-    
+    if (fileExistsSync(skillPath)) {
+      await $`rm -f ${skillPath}`;
+      return `Removed skill '${safeName}'. Restart opencode.`;
     }
     return `Nothing found matching '${safeName}'. Use 'mkp list' to see installed items.`;
   }
@@ -812,30 +839,23 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
     "chat.message": async (_input, output) => {
       const text = getMessageText(output.parts);
       state.lastUserMessage = text;
-      if (text.includes("HEXZ_ACTIVATE") || text.toLowerCase().includes("engage hexz")) {
+      if (text.includes("HEXZ_ACTIVATE") || /engage\s+hexz/i.test(text)) {
         state.active = true;
         for (const part of output.parts) {
-          if ("text" in part) (part as MessagePart).text = "[HEXZ] Active. Senior engineer mode.";
+          if (part.text) part.text = part.text.replace(/HEXZ_ACTIVATE/gi, "").trim();
         }
-        return;
       }
-      if (text.includes("HEXZ_DEACTIVATE") || text.toLowerCase().includes("revert to default")) {
+      if (text.includes("HEXZ_DEACTIVATE") || /revert\s+to\s+default/i.test(text)) {
         state.active = false;
         for (const part of output.parts) {
-          if ("text" in part) (part as MessagePart).text = "[HEXZ] Off.";
+          if (part.text) part.text = part.text.replace(/HEXZ_DEACTIVATE/gi, "").trim();
         }
-        return;
       }
     },
     "experimental.chat.system.transform": async (_input, output) => {
-      if (state.active) {
-        output.system.push(SYSTEM_PROMPT);
-      }
-    },
-    "experimental.session.compacting": async (_input, output) => {
-      if (state.active) {
-        output.context.push(CONTEXT_PRESERVE);
-      }
+      if (!state.active) return;
+      if (output.system.some((s: string) => s.includes("HEXZ"))) return;
+      output.system.push(SYSTEM_PROMPT);
     },
     "chat.params": async (_input, output) => {
       if (!state.active) return;
@@ -893,16 +913,11 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
       }
     },
     "tool.definition": async (input, output) => {
-      if (state.active) return;
-      const hidden = [
-        "hexz_search",
-        "hexz_scan",
-        "hexz_design",
-        "hexz_image",
-        "hexz_mkp",
-        "hexz_status",
-      ];
-      if (hidden.includes(input.toolID)) {
+      const hexzTools = new Set([
+        "hexz_search", "hexz_scan", "hexz_design", "hexz_image", "hexz_mkp", "hexz_status",
+      ]);
+      if (!hexzTools.has(input.toolID)) return;
+      if (!state.active) {
         output.description = "[HEXZ OFF] Activate with /active first.";
       }
     },
@@ -950,24 +965,18 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
       }
     },
     "session.created": async (input: any, _output: any) => {
-    
       const sessions = parseInt(getMemory("sessions") ?? "0", 10);
       setMemory("sessions", String(sessions + 1));
-    
       const dir = input.directory ?? ".";
       const projectTypes = await detectProjectType(dir);
       if (projectTypes.length > 0 && !state.active) {
         state.active = true;
-        console.log(`[HEXZ] Auto-activated for project type: ${projectTypes.join(", ")}`);
       }
     },
     tool: {
       hexz_search: tool({
-        get description() {
-          return state.active
-            ? "Web search via DuckDuckGo. Use before building code. Finds latest docs, API changes, breaking changes, best practices."
-            : "[HEXZ OFF] Activate with /active first.";
-        },
+        description:
+          "Web search via DuckDuckGo. Use before building code. Finds latest docs, API changes, breaking changes, best practices.",
         args: { query: tool.schema.string() },
         async execute(args, _ctx) {
           if (!state.active) return "HEXZ not active. Type /active first.";
@@ -978,11 +987,8 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
         },
       }),
       hexz_scan: tool({
-        get description() {
-          return state.active
-            ? "Security audit: injection, XSS, secrets, deps, data flow, auth, crypto. CVSS v3.1 per finding."
-            : "[HEXZ OFF] Activate with /active first.";
-        },
+        description:
+          "Security audit: injection, XSS, secrets, deps, data flow, auth, crypto. CVSS v3.1 per finding.",
         args: {
           target: tool.schema.string(),
           mode: tool.schema.string().optional(),
@@ -1033,11 +1039,8 @@ export const HexzPlugin: Plugin = async ({ client, $ }) => {
         },
       }),
       hexz_design: tool({
-        get description() {
-          return state.active
-            ? "Generate design scaffold as single HTML. Surfaces: web, mobile, dashboard, deck, email."
-            : "[HEXZ OFF] Activate with /active first.";
-        },
+        description:
+          "Generate design scaffold as single HTML. Surfaces: web, mobile, dashboard, deck, email.",
         args: {
           surface: tool.schema.string(),
           brief: tool.schema.string(),
@@ -1062,11 +1065,8 @@ ${html}`;
         },
       }),
       hexz_image: tool({
-        get description() {
-          return state.active
-            ? "Analyze images: UI screenshot, error, diagram, mockup. Describe and execute."
-            : "[HEXZ OFF] Activate with /active first.";
-        },
+        description:
+          "Analyze images: UI screenshot, error, diagram, mockup. Describe and execute.",
         args: {
           image_path: tool.schema.string(),
           intent: tool.schema.string().optional(),
@@ -1081,11 +1081,8 @@ Intent: ${args.intent ?? "auto"}
         },
       }),
       hexz_mkp: tool({
-        get description() {
-          return state.active
-            ? "Install plugins & skills. Commands: 'list', 'remove:name', 'owner/repo', 'npm-pkg', 'skill:owner/repo', 'skill:name --content \"...\"'"
-            : "[HEXZ OFF] Activate with /active first.";
-        },
+        description:
+          "Install plugins & skills. Commands: 'list', 'remove:name', 'owner/repo', 'npm-pkg', 'skill:owner/repo', 'skill:name --content \"...\"'",
         args: { target: tool.schema.string() },
         async execute(args, ctx) {
           if (!state.active) return "HEXZ not active. Type /active first.";
@@ -1123,3 +1120,5 @@ Intent: ${args.intent ?? "auto"}
   };
 };
 export default HexzPlugin;
+export const server = HexzPlugin;
+export const plugin = HexzPlugin;

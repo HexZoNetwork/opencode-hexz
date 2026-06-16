@@ -46,6 +46,15 @@ echo ""
 
 removed=0
 
+plugin_config_path() {
+  local dir="$1"
+  if [ "$(realpath "$dir" 2>/dev/null)" = "$(realpath "$HOME/.config/opencode" 2>/dev/null)" ]; then
+    echo "~/.config/opencode/plugins"
+  else
+    echo "./.opencode/plugins"
+  fi
+}
+
 find_opencode_config() {
   local dir="$1"
   for f in "$dir/opencode.json" "$dir/opencode.jsonc"; do
@@ -60,6 +69,9 @@ find_opencode_config() {
 remove_plugin_from_config() {
   local dir="$1"
   local config_file
+  local plugin_path
+
+  plugin_path=$(plugin_config_path "$dir")
 
   if ! config_file=$(find_opencode_config "$dir"); then
     return 0
@@ -80,9 +92,14 @@ remove_plugin_from_config() {
       try { config = JSON.parse(clean); } catch { process.exit(0); }
     }
     if (!config.plugin || !Array.isArray(config.plugin)) process.exit(0);
-    const hexzPattern = /hexz/;
+    const pluginPath = '$plugin_path';
+    const matchPatterns = [/hexz/, /opencode-hexz/];
     const before = config.plugin.length;
-    config.plugin = config.plugin.filter(p => !(typeof p === 'string' && hexzPattern.test(p)));
+    config.plugin = config.plugin.filter(p => {
+      if (typeof p !== 'string') return true;
+      if (p === pluginPath) return false;
+      return !matchPatterns.some(re => re.test(p));
+    });
     if (config.plugin.length === before) process.exit(0);
     if (config.plugin.length === 0) delete config.plugin;
     fs.writeFileSync('$config_file', JSON.stringify(config, null, 2) + '\\n');
@@ -95,9 +112,11 @@ remove_plugin_from_config() {
 }
 
 remove_project() {
+  local dir=".opencode"
   local found=0
-  for f in ".opencode/plugins/hexz.js" ".opencode/plugins/hexz.ts"; do
-    if [ -f "$f" ]; then
+
+  for marker in "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"; do
+    if [ -f "$marker" ]; then
       found=1
       break
     fi
@@ -109,18 +128,19 @@ remove_project() {
   fi
 
   if [ "$FORCE" = false ]; then
-    read -rp "  Remove project files from .opencode/? [y/N]: " confirm
+    read -rp "  Remove project files from $dir/? [y/N]: " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
       echo -e "  ${YELLOW}Skipped${RESET}"
       return 0
     fi
   fi
 
-  rm -f .opencode/plugins/hexz.js .opencode/plugins/hexz.ts
-  rm -f .opencode/commands/active.md .opencode/commands/off.md
-  # Only remove dirs if empty (safe for other plugins)
-  rmdir .opencode/commands 2>/dev/null || true
-  rmdir .opencode/plugins 2>/dev/null || true
+  rm -rf "$dir/plugins/hexz"
+  rm -f "$dir/plugins/package.json" "$dir/plugins/index.ts"
+  rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"  # legacy
+  rm -f "$dir/commands/active.md" "$dir/commands/off.md"
+  rmdir "$dir/commands" 2>/dev/null || true
+  rmdir "$dir/plugins" 2>/dev/null || true
   remove_plugin_from_config "."
   echo -e "${GREEN}✓${RESET} Removed project install"
   removed=1
@@ -130,8 +150,8 @@ remove_global() {
   local dir="$HOME/.config/opencode"
   local found=0
 
-  for f in "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"; do
-    if [ -f "$f" ]; then
+  for marker in "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"; do
+    if [ -f "$marker" ]; then
       found=1
       break
     fi
@@ -150,9 +170,10 @@ remove_global() {
     fi
   fi
 
-  rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"
+  rm -rf "$dir/plugins/hexz"
+  rm -f "$dir/plugins/package.json" "$dir/plugins/index.ts"
+  rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"  # legacy
   rm -f "$dir/commands/active.md" "$dir/commands/off.md"
-  # Only remove dirs if empty (safe for other plugins)
   rmdir "$dir/commands" 2>/dev/null || true
   rmdir "$dir/plugins" 2>/dev/null || true
   remove_plugin_from_config "$dir"

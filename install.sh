@@ -168,16 +168,57 @@ fi
 install_to() {
   local dest="$1"
   local label="$2"
+  local plugdir="$dest/plugins"
+  local hexzdir="$plugdir/hexz"
 
-  mkdir -p "$dest/plugins" "$dest/commands"
+  mkdir -p "$hexzdir" "$dest/commands"
 
-  cp "$SCRIPT_DIR/dist/hexz.js" "$dest/plugins/hexz.js"
+  cp "$SCRIPT_DIR/dist/hexz.js" "$hexzdir/index.js"
+  cp "$SCRIPT_DIR/src/hexz.ts" "$hexzdir/index.ts"
+
+  cat > "$hexzdir/package.json" << 'EOF'
+{
+  "type": "module"
+}
+EOF
+
+  cat > "$plugdir/package.json" << 'EOF'
+{
+  "name": "opencode-hexz",
+  "version": "1.3.0",
+  "description": "HEXZ — OpenCode Upgrade Layer",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@opencode-ai/plugin": "latest"
+  }
+}
+EOF
+
+  cat > "$plugdir/index.ts" << 'EOF'
+let initialized = false;
+let hooks: any = null;
+
+const init = async (input: any) => {
+  if (initialized) return hooks || {};
+  initialized = true;
+  const mod = await import("./hexz/index.ts");
+  const fn = mod.default || mod.HexzPlugin || mod;
+  if (typeof fn === "function") hooks = (await fn(input)) || {};
+  else hooks = {};
+  return hooks;
+};
+
+const HexzPlugin: any = (input: any) => init(input);
+export default HexzPlugin;
+export const server = HexzPlugin;
+EOF
 
   cat > "$dest/commands/active.md" << 'EOF'
 ---
 description: Engage HEXZ upgrade layer (anti-slop, security, design, search, marketplace)
 ---
-Type your message naturally. HEXZ activates on keywords like "build", "fix", "add feature", "create", "implement".
+HEXZ_ACTIVATE
 EOF
 
   cat > "$dest/commands/off.md" << 'EOF'
@@ -188,9 +229,12 @@ HEXZ_DEACTIVATE
 EOF
 
   echo -e "${GREEN}✓${RESET} ${label}"
-  echo -e "    plugins/hexz.js     → ${dest}/plugins/hexz.js"
-  echo -e "    commands/active.md  → ${dest}/commands/active.md"
-  echo -e "    commands/off.md     → ${dest}/commands/off.md"
+  echo -e "    plugins/hexz/index.ts    → ${hexzdir}/index.ts"
+  echo -e "    plugins/hexz/index.js    → ${hexzdir}/index.js"
+  echo -e "    plugins/package.json     → ${plugdir}/package.json"
+  echo -e "    plugins/index.ts         → ${plugdir}/index.ts"
+  echo -e "    commands/active.md       → ${dest}/commands/active.md"
+  echo -e "    commands/off.md          → ${dest}/commands/off.md"
 }
 
 echo -e "${BOLD}Installing:${RESET}"
@@ -220,6 +264,15 @@ find_opencode_config() {
   return 1
 }
 
+plugin_config_path() {
+  local dest="$1"
+  if [ "$(realpath "$dest")" = "$(realpath "$HOME/.config/opencode")" ]; then
+    echo "~/.config/opencode/plugins"
+  else
+    echo "./.opencode/plugins"
+  fi
+}
+
 add_plugin_to_config() {
   local config_file="$1"
   local plugin_path="$2"
@@ -238,7 +291,7 @@ EOF
   local raw
   raw=$(<"$config_file")
 
-  if echo "$raw" | grep -q "hexz"; then
+  if echo "$raw" | grep -qF "$plugin_path"; then
     echo -e "${GREEN}✓${RESET} $(basename "$config_file") already configured"
     return 0
   fi
@@ -247,10 +300,8 @@ EOF
   tmpfile=$(mktemp)
 
   if echo "$raw" | grep -q '"plugin"'; then
-    # Has plugin array - insert before closing bracket of plugin array
     echo "$raw" | sed "s|\"plugin\": \[|\"plugin\": [\n    \"$plugin_path\",|" > "$tmpfile"
   else
-    # No plugin key - add it before closing brace
     echo "$raw" | sed "s|}$|,\n  \"plugin\": [\"$plugin_path\"]\n}|" > "$tmpfile"
   fi
 
@@ -260,7 +311,8 @@ EOF
 
 verify_opencode_config() {
   local dir="$1"
-  local plugin_path="$2"
+  local plugin_path
+  plugin_path=$(plugin_config_path "$dir")
   local config_file
 
   if config_file=$(find_opencode_config "$dir"); then
@@ -280,14 +332,14 @@ echo ""
 echo -e "${BOLD}Verifying config:${RESET}"
 case "$MODE" in
   project)
-    verify_opencode_config "$(realpath "$DEST")" "./.opencode/plugins/hexz.js"
+    verify_opencode_config "$(realpath "$DEST")"
     ;;
   global)
-    verify_opencode_config "$HOME/.config/opencode" "~/.config/opencode/plugins/hexz.js"
+    verify_opencode_config "$HOME/.config/opencode"
     ;;
   both)
-    verify_opencode_config "$(realpath "$DEST")" "./.opencode/plugins/hexz.js"
-    verify_opencode_config "$HOME/.config/opencode" "~/.config/opencode/plugins/hexz.js"
+    verify_opencode_config "$(realpath "$DEST")"
+    verify_opencode_config "$HOME/.config/opencode"
     ;;
 esac
 

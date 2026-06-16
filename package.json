@@ -8,7 +8,7 @@
     ".": "./dist/hexz.js"
   },
   "scripts": {
-    "build": "bun build src/hexz.ts --outfile dist/hexz.js --target node --external @opencode-ai/plugin --external bun",
+    "build": "bun build src/hexz.ts --outfile dist/hexz.js --external bun",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "dev": "bun run build --watch",
