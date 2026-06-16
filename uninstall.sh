@@ -46,6 +46,44 @@ echo ""
 
 removed=0
 
+find_opencode_config() {
+  local dir="$1"
+  for f in "$dir/opencode.json" "$dir/opencode.jsonc"; do
+    if [ -f "$f" ]; then
+      echo "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+remove_plugin_from_config() {
+  local dir="$1"
+  local config_file
+
+  if ! config_file=$(find_opencode_config "$dir"); then
+    return 0
+  fi
+
+  bun -e "
+    const fs = require('fs');
+    const raw = fs.readFileSync('$config_file', 'utf8');
+    let config;
+    try { config = JSON.parse(raw); } catch {
+      const clean = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      try { config = JSON.parse(clean); } catch { process.exit(0); }
+    }
+    if (!config.plugin || !Array.isArray(config.plugin)) process.exit(0);
+    const hexzPattern = /hexz/;
+    const before = config.plugin.length;
+    config.plugin = config.plugin.filter(p => !(typeof p === 'string' && hexzPattern.test(p)));
+    if (config.plugin.length === before) process.exit(0);
+    if (config.plugin.length === 0) delete config.plugin;
+    fs.writeFileSync('$config_file', JSON.stringify(config, null, 2) + '\n');
+    console.log('removed');
+  " 2>/dev/null && echo -e "${GREEN}✓${RESET} Removed plugin from $(basename "$config_file")"
+}
+
 remove_project() {
   local found=0
   for f in ".opencode/plugins/hexz.js" ".opencode/plugins/hexz.ts"; do
@@ -72,6 +110,7 @@ remove_project() {
   rm -f .opencode/commands/active.md .opencode/commands/off.md
   rmdir .opencode/commands 2>/dev/null || true
   rmdir .opencode/plugins 2>/dev/null || true
+  remove_plugin_from_config "."
   echo -e "${GREEN}✓${RESET} Removed project install"
   removed=1
 }
@@ -104,6 +143,7 @@ remove_global() {
   rm -f "$dir/commands/active.md" "$dir/commands/off.md"
   rmdir "$dir/commands" 2>/dev/null || true
   rmdir "$dir/plugins" 2>/dev/null || true
+  remove_plugin_from_config "$dir"
   echo -e "${GREEN}✓${RESET} Removed global install"
   removed=1
 }

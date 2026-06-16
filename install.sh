@@ -210,22 +210,60 @@ case "$MODE" in
     ;;
 esac
 
-verify_opencode_json() {
+find_opencode_config() {
   local dir="$1"
-  local json="$dir/opencode.json"
-
-  if [ -f "$json" ]; then
-    if grep -q '"opencode-hexz"' "$json" 2>/dev/null; then
-      echo -e "${GREEN}✓${RESET} opencode.json already configured"
+  for f in "$dir/opencode.json" "$dir/opencode.jsonc"; do
+    if [ -f "$f" ]; then
+      echo "$f"
       return 0
     fi
-    echo -e "${YELLOW}⚠ opencode.json exists but missing opencode-hexz plugin.${RESET}"
-    echo "  Add: \"plugin\": [\"opencode-hexz\"]"
+  done
+  return 1
+}
+
+add_plugin_to_config() {
+  local config_file="$1"
+  local plugin_path="$2"
+
+  bun -e "
+    const fs = require('fs');
+    const raw = fs.readFileSync('$config_file', 'utf8');
+    let config;
+    try { config = JSON.parse(raw); } catch {
+      const clean = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      try { config = JSON.parse(clean); } catch { config = {}; }
+    }
+    if (!config.plugin) config.plugin = [];
+    if (!Array.isArray(config.plugin)) config.plugin = [config.plugin];
+    const hexzPattern = /hexz/;
+    if (config.plugin.some(p => typeof p === 'string' && hexzPattern.test(p))) {
+      console.log('already');
+      process.exit(0);
+    }
+    config.plugin.push('$plugin_path');
+    fs.writeFileSync('$config_file', JSON.stringify(config, null, 2) + '\n');
+    console.log('added');
+  " 2>/dev/null
+}
+
+verify_opencode_config() {
+  local dir="$1"
+  local plugin_path="$2"
+  local config_file
+
+  if config_file=$(find_opencode_config "$dir"); then
+    local result
+    result=$(add_plugin_to_config "$config_file" "$plugin_path")
+    if [ "$result" = "already" ]; then
+      echo -e "${GREEN}✓${RESET} $(basename "$config_file") already configured"
+    else
+      echo -e "${GREEN}✓${RESET} Added hexz to $(basename "$config_file")"
+    fi
   else
-    cat > "$json" << 'EOF'
+    cat > "$dir/opencode.json" << EOF
 {
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-hexz"]
+  "\$schema": "https://opencode.ai/config.json",
+  "plugin": ["$plugin_path"]
 }
 EOF
     echo -e "${GREEN}✓${RESET} Created opencode.json"
@@ -236,13 +274,14 @@ echo ""
 echo -e "${BOLD}Verifying config:${RESET}"
 case "$MODE" in
   project)
-    verify_opencode_json "$(realpath "$DEST")"
+    verify_opencode_config "$(realpath "$DEST")" "./.opencode/plugins/hexz.js"
     ;;
   global)
-    echo -e "${DIM}  Global install: add plugin to your project's opencode.json${RESET}"
+    verify_opencode_config "$HOME/.config/opencode" "~/.config/opencode/plugins/hexz.js"
     ;;
   both)
-    verify_opencode_json "$(realpath "$DEST")"
+    verify_opencode_config "$(realpath "$DEST")" "./.opencode/plugins/hexz.js"
+    verify_opencode_config "$HOME/.config/opencode" "~/.config/opencode/plugins/hexz.js"
     ;;
 esac
 
