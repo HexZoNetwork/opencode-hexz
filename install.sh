@@ -9,9 +9,10 @@ if [ -t 1 ]; then
   CYAN="\033[0;36m"
   YELLOW="\033[0;33m"
   RED="\033[0;31m"
+  DIM="\033[2m"
   RESET="\033[0m"
 else
-  BOLD="" GREEN="" CYAN="" YELLOW="" RED="" RESET=""
+  BOLD="" GREEN="" CYAN="" YELLOW="" RED="" DIM="" RESET=""
 fi
 
 usage() {
