@@ -63,9 +63,9 @@ DEST="${DEST:-.}"
 
 # ─── Banner ───────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}${BOLD}  ╔═══════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}  ║     HEXZ — OpenCode Upgrade Layer    ║${RESET}"
-echo -e "${CYAN}${BOLD}  ╚═══════════════════════════════════════╝${RESET}"
+echo -e "${CYAN}${BOLD}  ╔═════════════════════════╗${RESET}"
+echo -e "${CYAN}${BOLD}  ║     HEXZ — OpenCode     ║${RESET}"
+echo -e "${CYAN}${BOLD}  ╚═════════════════════════╝${RESET}"
 echo ""
 
 # ─── Preflight: bun ───────────────────────────────────────────────────────────
@@ -280,5 +280,5 @@ echo -e "    ${CYAN}hexz_design${RESET}    Design scaffolds"
 echo -e "    ${CYAN}hexz_image${RESET}     Image analysis"
 echo -e "    ${CYAN}hexz_mkp${RESET}       Plugin marketplace"
 echo ""
-echo -e "  ${DIM}https://github.com/opencode-community/opencode-hexz${RESET}"
+echo -e "  ${DIM}https://github.com/hexzonetwork/opencode-hexz${RESET}"
 echo ""

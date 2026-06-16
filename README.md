@@ -23,7 +23,7 @@ A plugin for [OpenCode](https://opencode.ai) that adds anti-slop language rules,
 
 ```bash
 # Clone the plugin
-git clone https://github.com/opencode-community/opencode-hexz.git
+git clone https://github.com/hexzonetwork/opencode-hexz.git
 cd opencode-hexz
 
 # Install dependencies and build
@@ -181,5 +181,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Links
 
 - [OpenCode](https://opencode.ai)
-- [OpenCode Plugins](https://github.com/opencode-community)
-- [Report Issues](https://github.com/opencode-community/opencode-hexz/issues)
+- [Report Issues](https://github.com/hexzonetwork/opencode-hexz/issues)
