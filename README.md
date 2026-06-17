@@ -136,19 +136,19 @@ echo '{"plugin": ["opencode-hexz"]}' > opencode.json
 
 ## Model Routing
 
-Per-task model routing via the interactive TUI (`/models` or `Ctrl+P`) or programmatically through `hexz_memory`.
+Per-task model routing via the interactive Question calls
 
 **Default: no routing** (single model passthrough).
 
 ```bash
-/models     # Opens TUI: toggle routing on/off, add/remove routes, clear all
+/route     # Opens the route menu
 ```
 
 | Keywords | Model |
 |---|---|
 | `design, ui, mockup` | gpt-4o |
-| `scan, security, audit` | claude-3-opus |
-| `cyber, exploit, malware` | claude-3-opus |
+| `scan, security, audit` | claude-4-8-opus |
+| `cyber, exploit, malware` | claude-4-6-sonnet |
 
 ```
 hexz_memory action=get key=model_routes
