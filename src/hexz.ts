@@ -3,7 +3,7 @@ import { tool } from "@opencode-ai/plugin";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-export const VERSION = "1.4.0";
+export const VERSION = "1.5.0";
 function fileExistsSync(p: string): boolean {
   try { return existsSync(p); } catch { return false; }
 }
@@ -35,6 +35,7 @@ function* globSync(pattern: string, cwd: string): Generator<string> {
 
 const CRAFT_DEFAULT_SECTIONS = ["typography", "color", "anti-ai-slop"];
 const DESIGN_DIR = join(import.meta.dir!, "design");
+const CYBER_DIR = join(import.meta.dir!, "cybersecurity");
 const SIMS_DIR = ".sims";
 
 function scanCodebase(cwd: string): string {
@@ -70,6 +71,70 @@ function scanCodebase(cwd: string): string {
   return lines.join("\n");
 }
 
+
+function readCyberSkill(dir: string, domain: string): string {
+  const skillDir = join(dir, "skills", domain);
+  const skillFile = join(skillDir, "SKILL.md");
+  let content = readFile(skillFile) ?? "";
+  const examplesDir = join(skillDir, "examples");
+  try {
+    const entries = readdirSync(examplesDir);
+    for (const entry of entries) {
+      if (entry.endsWith(".md")) {
+        const ex = readFile(join(examplesDir, entry));
+        if (ex) content += `\n\n## Example: ${entry}\n${ex.slice(0, 1000)}`;
+      }
+    }
+  } catch {}
+  if (!content) {
+    const mukulDir = join(dir, "skills-mukul");
+    try {
+      const entries = readdirSync(mukulDir);
+      const match = entries.find(e => e.includes(domain.replace(/[^a-z0-9]/g, "-")));
+      if (match) {
+        const mukulSkill = readFile(join(mukulDir, match, "SKILL.md"));
+        if (mukulSkill) content = mukulSkill.slice(0, 4000);
+      }
+    } catch {}
+  }
+  return content || `No skill file found for '${domain}'.`;
+}
+function listCyberSkills(dir: string): string[] {
+  const skills: string[] = [];
+  for (const sub of ["skills", "skills-mukul"]) {
+    try {
+      const entries = readdirSync(join(dir, sub));
+      for (const e of entries) {
+        if (fileExistsSync(join(dir, sub, e, "SKILL.md"))) {
+          skills.push(`${sub === "skills-mukul" ? "[M] " : ""}${e}`);
+        }
+      }
+    } catch {}
+  }
+  return skills;
+}
+function readCyberFrameworkMapping(dir: string, framework: string): string {
+  const fw = framework.toLowerCase();
+  const fwDir = join(dir, "mappings", fw === "mitre" ? "mitre-attack" : fw === "nist" ? "nist-csf" : fw === "owasp" ? "owasp" : fw);
+  try {
+    const entries = readdirSync(fwDir);
+    let result = `[HEXZ Cyber] Framework: ${framework.toUpperCase()}\n\n`;
+    for (const entry of entries) {
+      if (entry.endsWith(".md")) {
+        const content = readFile(join(fwDir, entry));
+        if (content) result += `--- ${entry} ---\n${content.slice(0, 2000)}\n\n`;
+      }
+    }
+    if (fw === "mitre") {
+      const navFile = join(dir, "mappings", "attack-navigator-layer.json");
+      const nav = readFile(navFile);
+      if (nav) result += `\nATT&CK Navigator layer available (${Math.floor(nav.length / 1024)} KB JSON).\n`;
+    }
+    return result;
+  } catch {
+    return `[HEXZ Cyber] Framework '${framework}' not found. Available: mitre, nist, owasp`;
+  }
+}
 
 function readCraftSection(dir: string, section: string): string {
   const path = join(dir, "craft", `${section}.md`);
@@ -135,6 +200,213 @@ const state = {
   msgCount: 0,
   diagnostics: [] as Array<{ file: string; line: number; message: string; severity: string }>,
 };
+const mcpConnections: Array<{ url: string; client: any }> = [];
+const dbDir = join(homedir(), ".config", "opencode");
+const dbPath = join(dbDir, "hexz-memory.json");
+const memStore = new Map<string, string>();
+try { mkdirSync(dbDir, { recursive: true }); } catch {}
+try {
+  const raw = readFileSync(dbPath, "utf-8");
+  const data = JSON.parse(raw);
+  for (const [k, v] of Object.entries(data)) {
+    if (typeof v === "string") memStore.set(k, v);
+  }
+  const savedActive = memStore.get("active");
+  if (savedActive === "true") state.active = true;
+} catch {}
+function saveMemory(): void {
+  try { writeFileSync(dbPath, JSON.stringify(Object.fromEntries(memStore))); } catch {}
+}
+function getMemory(key: string): string | null {
+  return memStore.get(key) ?? null;
+}
+function setMemory(key: string, value: string): void {
+  memStore.set(key, value);
+  saveMemory();
+}
+const ANSI = {
+  hide: '\x1b[?25l', show: '\x1b[?25h',
+  up: (n = 1) => `\x1b[${n}A`, down: (n = 1) => `\x1b[${n}B`,
+  clearLine: '\x1b[2K', clearScreen: '\x1b[2J',
+  moveTo: (row: number, col: number) => `\x1b[${row};${col}H`,
+  cyan: '\x1b[36m', green: '\x1b[32m', red: '\x1b[31m',
+  yellow: '\x1b[33m', dim: '\x1b[2m', bold: '\x1b[1m',
+  reset: '\x1b[0m', inverse: '\x1b[7m',
+} as const;
+function isTTY(): boolean { return Boolean(process.stdin.isTTY); }
+async function readKey(): Promise<string> {
+  return new Promise(resolve => {
+    const cb = (data: Buffer) => {
+      process.stdin.removeListener('data', cb);
+      process.stdin.setRawMode(false);
+      resolve(data.toString());
+    };
+    process.stdin.setRawMode(true);
+    process.stdin.once('data', cb);
+  });
+}
+function parseKey(s: string): string {
+  if (s === '\x1b[A' || s === '\x1bOA') return 'up';
+  if (s === '\x1b[B' || s === '\x1bOB') return 'down';
+  if (s === '\r' || s === '\n') return 'enter';
+  if (s === '\x1b' || s === '\x03') return 'escape';
+  if (s === '\x10') return 'ctrl-p';
+  if (s.length === 1 && s >= ' ') return s;
+  return '';
+}
+interface ModelRoute { model: string; keywords: string; }
+function getModelRoutes(): ModelRoute[] {
+  try {
+    const raw = getMemory("model_routes");
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function setModelRoutes(routes: ModelRoute[]): void {
+  setMemory("model_routes", JSON.stringify(routes));
+}
+function isRoutingEnabled(): boolean {
+  return getMemory("model_routing_enabled") === "true";
+}
+function getModelForTask(task: string): string | null {
+  if (!isRoutingEnabled()) return null;
+  const routes = getModelRoutes();
+  const lower = task.toLowerCase();
+  for (const r of routes) {
+    const keywords = r.keywords.split(",").map(k => k.trim().toLowerCase());
+    if (keywords.some(k => lower.includes(k))) return r.model;
+  }
+  return null;
+}
+async function showModelRoutingTUI(): Promise<string> {
+  if (!isTTY()) return "Interactive TUI requires a TTY. Use hexz_memory to configure routes directly.";
+  const stdout = process.stdout;
+  let rendered = 0;
+  const wl = (line: string) => { stdout.write(`${ANSI.clearLine}${line}\n`); rendered++; };
+  const clr = () => { if (rendered > 0) { stdout.write(ANSI.up(rendered)); rendered = 0; } };
+  const rr = () => { process.stdin.setRawMode(true); };
+  const enabled = (): boolean => getMemory("model_routing_enabled") === "true";
+  const routeCount = (): number => { try { const r = getMemory("model_routes"); return r ? JSON.parse(r).length : 0; } catch { return 0; } };
+  const renderMenu = (cursor: number, items: string[]): void => {
+    clr();
+    const e = enabled();
+    const rc = routeCount();
+    wl(`${ANSI.bold}${ANSI.cyan}HEXZ Model Routing${ANSI.reset}`);
+    wl(`${e ? `${ANSI.green}●${ANSI.reset}` : `${ANSI.red}○${ANSI.reset}`} ${e ? `Routing ON (${rc} route${rc !== 1 ? 's' : ''})` : 'No Routing (single model pass-through)'}`);
+    wl("");
+    for (let i = 0; i < items.length; i++) {
+      const prefix = i === cursor ? `${ANSI.inverse} >${ANSI.reset}${ANSI.inverse}` : "  ";
+      const suffix = i === cursor ? `${ANSI.reset}` : "";
+      wl(`${prefix} ${items[i]}${suffix}`);
+    }
+    wl("");
+    wl(`${ANSI.dim}↑↓ navigate  ↵ select  esc back${ANSI.reset}`);
+    rr();
+  };
+  const e = enabled();
+  const routes = getModelRoutes();
+  const items = [
+    e ? "Disable Routing" : "Enable Routing",
+    "Add Route (model + keywords)",
+    ...(routes.length > 0 ? ["Remove Route", "Clear All Routes"] : []),
+    "Back",
+  ];
+  let cursor = 0;
+  renderMenu(cursor, items);
+  while (true) {
+    const raw = await readKey();
+    const key = parseKey(raw);
+    if (key === 'up') { cursor = (cursor - 1 + items.length) % items.length; renderMenu(cursor, items); }
+    else if (key === 'down') { cursor = (cursor + 1) % items.length; renderMenu(cursor, items); }
+    else if (key === 'escape') { clr(); return "[HEXZ Models] Closed."; }
+    else if (key === 'enter') {
+      const selected = items[cursor];
+      clr();
+      const curRoutes = getModelRoutes();
+      if (selected === "Enable Routing") {
+        setMemory("model_routing_enabled", "true");
+        stdout.write(`${ANSI.green}✓${ANSI.reset} Routing enabled\n`);
+        return "[HEXZ Models] Routing enabled. Add routes with 'Add Route'.";
+      }
+      if (selected === "Disable Routing") {
+        setMemory("model_routing_enabled", "false");
+        stdout.write(`${ANSI.yellow}○${ANSI.reset} Routing disabled\n`);
+        return "[HEXZ Models] Routing disabled. Using single model pass-through.";
+      }
+      if (selected === "Add Route (model + keywords)") {
+        stdout.write(`${ANSI.bold}Add Route${ANSI.reset}\n`);
+        stdout.write("Model name (e.g. gpt-4o, claude-3-opus): ");
+        rr();
+        const modelRaw = await readKey();
+        const model = modelRaw.trim();
+        stdout.write(`\n${ANSI.dim}${model}${ANSI.reset}\n`);
+        stdout.write("Task keywords (comma-separated, e.g. design,ui,mockup): ");
+        rr();
+        const kwRaw = await readKey();
+        const keywords = kwRaw.trim();
+        stdout.write(`\n${ANSI.dim}${keywords}${ANSI.reset}\n`);
+        if (model && keywords) {
+          const current = getModelRoutes();
+          current.push({ model, keywords });
+          setModelRoutes(current);
+          stdout.write(`${ANSI.green}✓${ANSI.reset} Route added: ${model} → ${keywords}\n`);
+        } else {
+          stdout.write(`${ANSI.red}✗${ANSI.reset} Both model and keywords required.\n`);
+        }
+        return "[HEXZ Models] Route added.";
+      }
+      if (selected === "Remove Route") {
+        const removeItems = curRoutes.map((r: ModelRoute, i: number) => `${i + 1}. ${r.model} → ${r.keywords}`);
+        removeItems.push("Cancel");
+        let rCursor = 0;
+        const renderRemove = () => {
+          clr();
+          wl(`${ANSI.bold}${ANSI.cyan}Select route to remove:${ANSI.reset}`);
+          wl("");
+          for (let i = 0; i < removeItems.length; i++) {
+            const p = i === rCursor ? `${ANSI.inverse} >${ANSI.reset}${ANSI.inverse}` : "  ";
+            const s = i === rCursor ? `${ANSI.reset}` : "";
+            wl(`${p} ${removeItems[i]}${s}`);
+          }
+          wl("");
+          wl(`${ANSI.dim}↑↓ navigate  ↵ select  esc back${ANSI.reset}`);
+          rr();
+        };
+        renderRemove();
+        while (true) {
+          const rRaw = await readKey();
+          const rKey = parseKey(rRaw);
+          if (rKey === 'up') { rCursor = (rCursor - 1 + removeItems.length) % removeItems.length; renderRemove(); }
+          else if (rKey === 'down') { rCursor = (rCursor + 1) % removeItems.length; renderRemove(); }
+          else if (rKey === 'escape') { clr(); break; }
+          else if (rKey === 'enter') {
+            clr();
+            if (removeItems[rCursor] === "Cancel") break;
+            const idx = rCursor;
+            const fresh = getModelRoutes();
+            if (idx >= 0 && idx < fresh.length) {
+              const removed = fresh.splice(idx, 1);
+              setModelRoutes(fresh);
+              stdout.write(`${ANSI.green}✓${ANSI.reset} Removed route: ${removed[0]!.model}\n`);
+            }
+            return "[HEXZ Models] Route removed.";
+          }
+        }
+        cursor = 0;
+        renderMenu(cursor, items);
+        continue;
+      }
+      if (selected === "Clear All Routes") {
+        setModelRoutes([]);
+        stdout.write(`${ANSI.yellow}⚠${ANSI.reset} All routes cleared.\n`);
+        return "[HEXZ Models] All routes cleared.";
+      }
+      if (selected === "Back") break;
+    }
+  }
+  clr();
+  return "[HEXZ Models] Closed.";
+}
+
 const searchCache = new Map<string, SearchCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const RATE_LIMIT_MS = 3000;
@@ -160,21 +432,21 @@ const INSIGHTS = [
 ];
 
 const CYBER_DOMAINS = [
-  { id: "recon", label: "Reconnaissance & OSINT", keywords: ["recon", "osint", "enumeration", "dns", "fingerprint"] },
-  { id: "vuln_scan", label: "Vulnerability Scanning & Assessment", keywords: ["vuln", "cve", "cvss", "audit"] },
-  { id: "exploit_dev", label: "Exploit Development & Payload Engineering", keywords: ["exploit", "payload", "shellcode", "buffer overflow"] },
-  { id: "reverse_eng", label: "Reverse Engineering & Binary Analysis", keywords: ["reverse", "binary", "assembly", "firmware"] },
-  { id: "malware", label: "Malware Analysis & Sandboxing", keywords: ["malware", "yara", "sandbox", "static", "dynamic"] },
-  { id: "threat_hunt", label: "Threat Hunting & IOC Analysis", keywords: ["threat", "hunt", "ioc", "sigma", "mitre"] },
-  { id: "incident_resp", label: "Incident Response & Digital Forensics", keywords: ["incident", "forensics", "memory", "timeline"] },
-  { id: "network_sec", label: "Network Security & Traffic Analysis", keywords: ["network", "pcap", "snort", "suricata", "firewall"] },
-  { id: "webapp_sec", label: "Web Application Security Testing", keywords: ["web", "owasp", "sqli", "xss", "api", "jwt"] },
-  { id: "cloud_sec", label: "Cloud Security & Container Hardening", keywords: ["cloud", "aws", "azure", "gcp", "docker", "k8s"] },
-  { id: "soc_ops", label: "CSOC Operations & Playbook Automation", keywords: ["soc", "playbook", "triage", "escalation"] },
-  { id: "log_analysis", label: "Log Analysis & SIEM Integration", keywords: ["log", "siem", "spl", "kql", "anomaly"] },
-  { id: "crypto", label: "Cryptographic Analysis & Assessment", keywords: ["crypto", "tls", "cipher", "key", "encryption"] },
-  { id: "red_team", label: "Red Team Operations", keywords: ["red team", "c2", "ad", "kerberos", "social"] },
-  { id: "blue_team", label: "Blue Team Defense & Hardening", keywords: ["blue team", "hardening", "detection", "patching"] },
+  { id: "recon", label: "Reconnaissance & OSINT", dir: "01-recon-osint", keywords: ["recon", "osint", "enumeration", "dns", "fingerprint"] },
+  { id: "vuln_scan", label: "Vulnerability Scanning & Assessment", dir: "02-vulnerability-scanner", keywords: ["vuln", "cve", "cvss", "audit"] },
+  { id: "exploit_dev", label: "Exploit Development & Payload Engineering", dir: "03-exploit-development", keywords: ["exploit", "payload", "shellcode", "buffer overflow"] },
+  { id: "reverse_eng", label: "Reverse Engineering & Binary Analysis", dir: "04-reverse-engineering", keywords: ["reverse", "binary", "assembly", "firmware"] },
+  { id: "malware", label: "Malware Analysis & Sandboxing", dir: "05-malware-analysis", keywords: ["malware", "yara", "sandbox", "static", "dynamic"] },
+  { id: "threat_hunt", label: "Threat Hunting & IOC Analysis", dir: "06-threat-hunting", keywords: ["threat", "hunt", "ioc", "sigma", "mitre"] },
+  { id: "incident_resp", label: "Incident Response & Digital Forensics", dir: "07-incident-response", keywords: ["incident", "forensics", "memory", "timeline"] },
+  { id: "network_sec", label: "Network Security & Traffic Analysis", dir: "08-network-security", keywords: ["network", "pcap", "snort", "suricata", "firewall"] },
+  { id: "webapp_sec", label: "Web Application Security Testing", dir: "09-web-security", keywords: ["web", "owasp", "sqli", "xss", "api", "jwt"] },
+  { id: "cloud_sec", label: "Cloud Security & Container Hardening", dir: "10-cloud-security", keywords: ["cloud", "aws", "azure", "gcp", "docker", "k8s"] },
+  { id: "soc_ops", label: "CSOC Operations & Playbook Automation", dir: "11-csoc-automation", keywords: ["soc", "playbook", "triage", "escalation"] },
+  { id: "log_analysis", label: "Log Analysis & SIEM Integration", dir: "12-log-analysis", keywords: ["log", "siem", "spl", "kql", "anomaly"] },
+  { id: "crypto", label: "Cryptographic Analysis & Assessment", dir: "13-crypto-analysis", keywords: ["crypto", "tls", "cipher", "key", "encryption"] },
+  { id: "red_team", label: "Red Team Operations", dir: "14-red-team-ops", keywords: ["red team", "c2", "ad", "kerberos", "social"] },
+  { id: "blue_team", label: "Blue Team Defense & Hardening", dir: "15-blue-team-defense", keywords: ["blue team", "hardening", "detection", "patching"] },
 ];
 function isSafeInput(input: string): boolean {
   return /^[a-zA-Z0-9@.\/_\- ]+$/.test(input) && input.length <= 500;
@@ -555,10 +827,14 @@ hexz_status — Check if HEXZ is active.
 hexz_sim    — Simulation sandbox. Call BEFORE destructive actions (Write/Edit/Bash-rm/mv/cp).
 hexz_codebase — Scan project, generate codebase.md with file connections.
 hexz_cyber  — Cybersecurity. 15 domains (recon, exploit, malware, forensics, etc).
+hexz_webss — Web screenshot via Puppeteer (capture-website). Capture site visuals.
+hexz_mcp   — MCP server management. Connect to external servers for DB/FS/API.
+hexz_memory — Persistent memory across sessions. Store project context & preferences.
+hexz_pr    — Git PR workflow. Status, diff, create pull requests with gh CLI.
 
 WORKFLOW:
 - Read tools (Read/Glob/Grep): IMAGINE impact first.
-- Destructive tools (Write/Edit/Bash-rm/mv/cp/`>`): SIMULATE first.
+- Destructive tools (Write/Edit/Bash-rm/mv/cp/>): SIMULATE first.
   a. Think: what breaks?
   b. hexz_sim(name, plan, files) → .sims/simscode-<name>/
   c. Verify sim for edge cases
@@ -581,37 +857,12 @@ You are in HEXZ mode. Key rules you must follow RIGHT NOW:
 `.trim();
 const CONTEXT_PRESERVE = `
 [HEXZ] Active senior-engineer mode. Workflow: search → plan → sim → build → scan.
-Tools: hexz_search|scan|design|image|mkp|status|sim|codebase|cyber.
+Tools: hexz_search|scan|design|image|webss|mcp|memory|pr|mkp|status|sim|codebase|cyber.
 Destructive actions require hexz_sim() first. No filler, no slop, no AI-template structure.
 `.trim();
-export const HexzPlugin: Plugin = async (input: any, options?: any) => {
+export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
   const { client, $ } = input || {} as any;
   const projectDir = input?.directory ?? ".";
-  const dbDir = join(homedir(), ".config", "opencode");
-  const dbPath = join(dbDir, "hexz-memory.json");
-  const memStore = new Map<string, string>();
-  try { mkdirSync(dbDir, { recursive: true }); } catch {}
-  try {
-    const raw = readFileSync(dbPath, "utf-8");
-    const data = JSON.parse(raw);
-    for (const [k, v] of Object.entries(data)) {
-      if (typeof v === "string") memStore.set(k, v);
-    }
-    const savedActive = memStore.get("active");
-    if (savedActive === "true") state.active = true;
-  } catch {}
-  function saveMemory(): void {
-    try {
-      writeFileSync(dbPath, JSON.stringify(Object.fromEntries(memStore)));
-    } catch {}
-  }
-  function getMemory(key: string): string | null {
-    return memStore.get(key) ?? null;
-  }
-  function setMemory(key: string, value: string): void {
-    memStore.set(key, value);
-    saveMemory();
-  }
   async function sendNotification(title: string, message: string): Promise<void> {
     try {
       const platform = process.platform;
@@ -808,17 +1059,21 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
         output.parts = [];
         return;
       }
-      if (state.active && Math.random() < 0.8) {
-        const pick = INSIGHTS[Math.floor(Math.random() * INSIGHTS.length)]!;
-        const insightText = `\n\nInsight <==\n${pick}\n=======>\n`;
-        for (const part of output.parts) {
-          if (part.text) part.text = `${part.text}\n${insightText}`;
-        }
+      if (text.includes("HEXZ_MODELS") || text.trim() === "/models" || text.includes("\x10")) {
+        output.parts = [];
+        const result = await showModelRoutingTUI();
+        output.parts.push({ text: result } as any);
+        return;
       }
+
     },
     "experimental.chat.system.transform": async (_input, output) => {
       if (!state.active) return;
       output.system.push(SYSTEM_PROMPT);
+      if (state.msgCount > 0 && state.msgCount % 3 === 0) {
+        const pick = INSIGHTS[Math.floor(Math.random() * INSIGHTS.length)]!;
+        output.system.push(`[HEXZ Self-Review]: ${pick}`);
+      }
       if (state.msgCount > 0 && state.msgCount % 4 === 0) {
         output.system.push(RECALL_REMINDER);
       }
@@ -836,10 +1091,21 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
         output.parts = [];
         return;
       }
+      if (input.command === "models") {
+        output.parts = [];
+        const result = await showModelRoutingTUI();
+        output.parts.push({ text: result } as any);
+        return;
+      }
     },
-    "chat.params": async (_input, output) => {
+    "chat.params": async (input: any, output: any) => {
       if (!state.active) return;
       output.temperature = 0.3;
+      const msg: string = input.message?.content ?? "";
+      const routed = getModelForTask(msg);
+      if (routed) {
+        output.model = routed;
+      }
     },
     "permission.ask": async (input, output) => {
       if (!state.active) return;
@@ -914,10 +1180,6 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
         cleaned = `${cleaned.slice(0, 4000)}\n\n[HEXZ] Truncated — showing first 4000 chars.`;
       }
     
-      if (Math.random() < 0.5) {
-        const pick = INSIGHTS[Math.floor(Math.random() * INSIGHTS.length)]!;
-        cleaned += `\n\nInsight <==\n${pick}\n=======>`;
-      }
       output.output = cleaned;
     },
     "tool.definition": async (input, output) => {
@@ -940,6 +1202,14 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
           "Scan the project and generate/update codebase.md. Shows every source file, its imports, exports, line count, and connections. Read this before making changes to understand the full picture.",
         hexz_cyber:
           "Cybersecurity skills & framework mappings. 15 core domains: recon, vuln scan, exploit dev, reverse engineering, malware analysis, threat hunting, incident response, network/web/cloud security, forensics, SOC, crypto, red/blue team. Mapped to MITRE ATT&CK, NIST CSF 2.0, OWASP Top 10. Call for any security-related task.",
+        hexz_webss:
+          "Capture screenshots of websites via Puppeteer. Use for visual debugging, design reference, or archiving. Requires capture-website + Puppeteer.",
+        hexz_mcp:
+          "MCP (Model Context Protocol) server management. Connect/discover/call tools on external MCP servers for DB, filesystem, and API access.",
+        hexz_memory:
+          "Persistent agent memory across sessions. Get/set/list/clear stored project context, preferences, and summaries.",
+        hexz_pr:
+          "Git PR workflow. Check status, diff, and create pull requests with AI descriptions. Requires git + gh CLI.",
       };
       if (!desc[input.toolID]) return;
       output.description = state.active ? desc[input.toolID] : "[HEXZ OFF] Activate with /active first.";
@@ -949,11 +1219,13 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
       const up = Math.floor((Date.now() - state.startTime) / 1000);
       const minutes = Math.floor(up / 60);
       const seconds = up % 60;
-      const message = `HEXZ active for ${minutes}m${seconds}s. ${state.searches} searches performed.`;
+      const diagCount = state.diagnostics.filter(d => d.severity === "error").length;
+      const message = `HEXZ active for ${minutes}m${seconds}s. ${state.searches} searches. ${diagCount} errors.`;
       await sendNotification("HEXZ Status", message);
     
       const prevSearches = parseInt(getMemory("total_searches") ?? "0", 10);
       setMemory("total_searches", String(prevSearches + state.searches));
+      setMemory("last_session_summary", `${minutes}m session, ${state.searches} searches, ${diagCount} LSP errors`);
     },
     "lsp.client.diagnostics": async (input: any, _output: any) => {
       if (!state.active) return;
@@ -973,18 +1245,26 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
     },
     "file.edited": async (input: any, _output: any) => {
       if (!state.active) return;
-      const filePath = input.path;
-      if (!filePath) return;
+      const fp = input.path;
+      if (!fp) return;
     
       try {
-        await $`biome format --write ${filePath}`.quiet();
+        await $`biome format --write ${fp}`.quiet();
       } catch {
-      
         try {
-          await $`prettier --write ${filePath}`.quiet();
-        } catch {
-        
-        }
+          await $`prettier --write ${fp}`.quiet();
+        } catch {}
+      }
+    
+      const srcPatterns = [".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".java"];
+      const ext = srcPatterns.find(e => fp.endsWith(e));
+      if (!ext) return;
+    
+      const base = fp.slice(0, -ext.length);
+      const testExts = [".test.ts", ".test.tsx", ".test.js", ".test.jsx", "_test.py", "_test.rs", "_test.go", "Test.java"];
+      const testExists = testExts.some(te => fileExistsSync(base + te));
+      if (!testExists) {
+        state.lastUserMessage = `[HEXZ] File edited: ${fp}. Consider adding tests. No test file found at ${base}*.`;
       }
     },
     "session.created": async (input: any, _output: any) => {
@@ -992,9 +1272,16 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
       setMemory("sessions", String(sessions + 1));
       const dir = input.directory ?? ".";
       const projectTypes = await detectProjectType(dir);
-      if (projectTypes.length > 0 && !state.active) {
-        state.active = true;
-        setMemory("active", "true");
+      if (projectTypes.length > 0) {
+        setMemory("project_context", projectTypes.join(", "));
+        if (!state.active) {
+          state.active = true;
+          setMemory("active", "true");
+        }
+      }
+      const prevSum = getMemory("last_session_summary");
+      if (prevSum && state.active) {
+        state.lastUserMessage = `[HEXZ] Previous session: ${prevSum.slice(0, 200)}`;
       }
     },
     "experimental.session.compacting": async (_input, output) => {
@@ -1076,6 +1363,7 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
           design_system: tool.schema.string().optional(),
           template: tool.schema.string().optional(),
           craft_sections: tool.schema.string().optional(),
+          save: tool.schema.string().optional(),
         },
         async execute(args, ctx) {
           if (!state.active) return "HEXZ not active. Type /active first.";
@@ -1152,24 +1440,205 @@ export const HexzPlugin: Plugin = async (input: any, options?: any) => {
     </div>
   </section>
 </main>`;
-          lines.push(generateDesignScaffoldHTML(scaffoldBody));
+          const html = generateDesignScaffoldHTML(scaffoldBody);
+          if (args.save) {
+            const outPath = join(ctx.directory, args.save);
+            writeFile(outPath, html);
+            lines.push(`\nSaved to ${args.save}`);
+          } else {
+            lines.push(html);
+          }
           return lines.join("\n");
         },
       }),
       hexz_image: tool({
         description:
-          "Analyze images: UI screenshot, error, diagram, mockup. Describe and execute.",
+          "Analyze images: screenshots, error messages, diagrams, mockups. Uses OCR to extract text from images. Describe what you see and execute (replicate UI, fix errors, code from diagrams).",
         args: {
           image_path: tool.schema.string(),
           intent: tool.schema.string().optional(),
         },
-        async execute(args, _ctx) {
+        async execute(args: any, _ctx: any) {
           if (!state.active) return "HEXZ not active. Type /active first.";
           if (!isSafeInput(args.image_path)) return "Invalid image path.";
-          return `[HEXZ Image] ${args.image_path}
-Intent: ${args.intent ?? "auto"}
-1. Describe what you see
-2. Execute: replicate (UI), fix (error), code (diagram), build (mockup)`;
+          const imagePath = args.image_path.startsWith("/") ? args.image_path : join(projectDir, args.image_path);
+          if (!fileExistsSync(imagePath)) return `[HEXZ Image] File not found: ${imagePath}`;
+          const intent = args.intent ?? "auto";
+          try {
+            const mod = await import("tesseract.js");
+            const result = await (mod as any).recognize(imagePath, "eng");
+            const text = result.data.text.trim();
+            let response = `[HEXZ Image] ${args.image_path}\nIntent: ${intent}\n`;
+            if (text) {
+              response += `\nExtracted text (${text.split("\n").length} lines):\n${text.slice(0, 2000)}`;
+            } else {
+              response += "\nNo text detected in image.";
+            }
+            response += `\n\nConfidence: ${Math.round(result.data.confidence)}%`;
+            return response;
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : "unknown error";
+            return `[HEXZ Image] OCR failed: ${msg}. You can still manually describe what you see.`;
+          }
+        },
+      }),
+      hexz_webss: tool({
+        description:
+          "Capture website screenshots via Puppeteer. Use for visual debugging, design reference, or archiving. Requires capture-website + Puppeteer installed.",
+        args: {
+          url: tool.schema.string(),
+          output: tool.schema.string().optional(),
+          width: tool.schema.number().optional(),
+          height: tool.schema.number().optional(),
+          fullPage: tool.schema.boolean().optional(),
+          type: tool.schema.string().optional(),
+          quality: tool.schema.number().optional(),
+          emulateDevice: tool.schema.string().optional(),
+          css: tool.schema.string().optional(),
+          inputType: tool.schema.string().optional(),
+        },
+        async execute(args: any, _ctx: any) {
+          if (!state.active) return "HEXZ not active. Type /active first.";
+          try {
+            const mod = await import("capture-website");
+            const cw = (mod as any).default || mod;
+            const opts: Record<string, unknown> = {};
+            if (args.width) opts["width"] = args.width;
+            if (args.height) opts["height"] = args.height;
+            if (args.fullPage) opts["fullPage"] = true;
+            if (args.type) opts["type"] = args.type;
+            if (args.quality) opts["quality"] = args.quality;
+            if (args.emulateDevice) opts["emulateDevice"] = args.emulateDevice;
+            if (args.css) opts["css"] = args.css;
+            if (args.inputType) opts["inputType"] = args.inputType;
+            if (args.output) {
+              const outPath = join(projectDir, args.output);
+              await cw.file(args.url, outPath, opts);
+              return `[HEXZ WebSS] Screenshot saved to ${args.output}`;
+            }
+            const b64: string = await cw.base64(args.url, opts);
+            return `[HEXZ WebSS] Screenshot captured (base64, ${Math.floor(b64.length / 1024)} KB). Pass output=path to save to file.`;
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : "unknown error";
+            return `[HEXZ WebSS] Failed: ${msg}. Ensure capture-website and Puppeteer are installed (npm install capture-website puppeteer).`;
+          }
+        },
+      }),
+      hexz_mcp: tool({
+        description:
+          "MCP (Model Context Protocol) server management. Connect to external MCP servers for DB, filesystem, and API access.",
+        args: {
+          action: tool.schema.string(),
+          server: tool.schema.string().optional(),
+          tool_name: tool.schema.string().optional(),
+          args_json: tool.schema.string().optional(),
+        },
+        async execute(args, _ctx) {
+          if (!state.active) return "HEXZ not active. Type /active first.";
+          const a = args.action;
+          if (a === "connect") {
+            if (!args.server) return "Usage: hexz_mcp action=connect server=<url>";
+            const existing = mcpConnections.find(c => c.url === args.server);
+            if (existing) return `[HEXZ MCP] Already connected to ${args.server}`;
+            mcpConnections.push({ url: args.server, client: null });
+            return `[HEXZ MCP] Connecting to ${args.server}... use hexz_mcp action=list to verify.`;
+          }
+          if (a === "disconnect") {
+            if (!args.server) return "Usage: hexz_mcp action=disconnect server=<url>";
+            const idx = mcpConnections.findIndex(c => c.url === args.server);
+            if (idx === -1) return `[HEXZ MCP] Not connected to ${args.server}`;
+            mcpConnections.splice(idx, 1);
+            return `[HEXZ MCP] Disconnected from ${args.server}`;
+          }
+          if (a === "list") {
+            if (mcpConnections.length === 0) return "[HEXZ MCP] No active connections. Use hexz_mcp action=connect server=<url>";
+            return `[HEXZ MCP] Connected servers:\n${mcpConnections.map(c => `  - ${c.url}`).join("\n")}`;
+          }
+          return "Usage: hexz_mcp action=(connect|disconnect|list) [server=<url>] [tool_name=<name>] [args_json=<json>]";
+        },
+      }),
+      hexz_memory: tool({
+        description:
+          "Persistent agent memory. Read, write, or clear stored data across sessions. Keys: project context, user preferences, session summaries.",
+        args: {
+          action: tool.schema.string(),
+          key: tool.schema.string().optional(),
+          value: tool.schema.string().optional(),
+        },
+        async execute(args, _ctx) {
+          if (!state.active) return "HEXZ not active. Type /active first.";
+          const a = args.action;
+          if (a === "get") {
+            if (!args.key) return "Usage: hexz_memory action=get key=<name>";
+            const val = getMemory(args.key);
+            return val !== null ? `[HEXZ Memory] ${args.key} = ${val}` : `[HEXZ Memory] Key '${args.key}' not found.`;
+          }
+          if (a === "set") {
+            if (!args.key || args.value === undefined) return "Usage: hexz_memory action=set key=<name> value=<text>";
+            setMemory(args.key, args.value);
+            return `[HEXZ Memory] Set ${args.key} = ${args.value.slice(0, 100)}${args.value.length > 100 ? "..." : ""}`;
+          }
+          if (a === "list") {
+            const keys = ["active", "total_searches", "sessions", "project_context", "last_error", "last_session_summary"];
+            const entries: string[] = [];
+            for (const k of keys) {
+              const v = getMemory(k);
+              if (v !== null) entries.push(`  ${k}: ${v.slice(0, 80)}`);
+            }
+            return entries.length ? `[HEXZ Memory] Stored keys:\n${entries.join("\n")}` : "[HEXZ Memory] No stored data.";
+          }
+          if (a === "clear") {
+            for (const k of ["project_context", "last_error", "last_session_summary"]) setMemory(k, "");
+            return "[HEXZ Memory] Cleared session keys.";
+          }
+          return "Usage: hexz_memory action=(get|set|list|clear) [key=<name>] [value=<text>]";
+        },
+      }),
+      hexz_pr: tool({
+        description:
+          "Git PR workflow. Create pull requests with AI descriptions, review diffs, manage branches.",
+        args: {
+          action: tool.schema.string(),
+          title: tool.schema.string().optional(),
+          base: tool.schema.string().optional(),
+        },
+        async execute(args, _ctx) {
+          if (!state.active) return "HEXZ not active. Type /active first.";
+          const a = args.action;
+          if (a === "status") {
+            try {
+              const branch = (await $`git branch --show-current`.text()).trim();
+              const status = (await $`git status --short`.text()).trim();
+              const ahead = (await $`git log --oneline @{u}.. 2>/dev/null || true`.text()).trim();
+              return `[HEXZ PR] Branch: ${branch}\n${status || "Clean working tree"}\n${ahead ? `Ahead by:\n${ahead}` : "Up to date with remote"}`;
+            } catch {
+              return "[HEXZ PR] Not a git repository or git not available.";
+            }
+          }
+          if (a === "diff") {
+            try {
+              const diff = (await $`git diff HEAD --stat`.text()).trim();
+              const staged = (await $`git diff --cached --stat`.text()).trim();
+              return `[HEXZ PR] Changes:\n${diff || "(unstaged)"}\n${staged ? `\nStaged:\n${staged}` : ""}`;
+            } catch {
+              return "[HEXZ PR] Not a git repository.";
+            }
+          }
+          if (a === "create") {
+            try {
+              const branch = (await $`git branch --show-current`.text()).trim();
+              const base = args.base ?? "main";
+              const title = args.title ?? `Update ${branch}`;
+              const body = `Automated PR from HEXZ v${VERSION}\n\nBranch: ${branch}\nBase: ${base}`;
+              await $`git push -u origin ${branch}`;
+              const prUrl = (await $`gh pr create --base ${base} --title ${title} --body ${body}`.text()).trim();
+              return `[HEXZ PR] Created: ${prUrl}`;
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : "unknown error";
+              return `[HEXZ PR] Failed: ${msg}. Ensure gh CLI is installed and authenticated.`;
+            }
+          }
+          return "Usage: hexz_pr action=(status|diff|create) [title=<text>] [base=<branch>]";
         },
       }),
       hexz_mkp: tool({
@@ -1262,61 +1731,71 @@ Intent: ${args.intent ?? "auto"}
         },
       }),
       hexz_cyber: tool({
-        description: "Cybersecurity skills & framework mappings. 15 core domains: recon, vuln scan, exploit dev, reverse engineering, malware analysis, threat hunting, incident response, network/web/cloud security, forensics, SOC, crypto, red/blue team. Call for any security-related task.",
+        description: "Cybersecurity skills & framework mappings. 769+ skills across 15 core domains + 754 specialized skills from mukul. MITRE ATT&CK, NIST CSF, OWASP mappings. Call for any security-related task.",
         args: {
           domain: tool.schema.string().optional(),
           query: tool.schema.string().optional(),
           framework: tool.schema.string().optional(),
+          list: tool.schema.boolean().optional(),
         },
         async execute(args, _ctx) {
           if (!state.active) return "HEXZ not active. Type /active first.";
+          if (args.list) {
+            const skills = listCyberSkills(CYBER_DIR);
+            return `[HEXZ Cyber] Available skills (${skills.length} total):\n${skills.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\nFrameworks: mitre, nist, owasp`;
+          }
           const lines: string[] = ["[HEXZ Cyber]"];
           if (args.framework) {
-            const fw = args.framework.toLowerCase();
-            if (fw === "mitre") {
-              lines.push("MITRE ATT&CK: 14 tactics, 218+ techniques");
-              lines.push("Key techniques: T1059.001 (PowerShell), T1055 (Process Injection), T1053.005 (Scheduled Task)");
-              lines.push("Use hexz_search to find specific technique mappings.");
-            } else if (fw === "nist") {
-              lines.push("NIST CSF 2.0: Govern, Identify, Protect, Detect, Respond, Recover");
-              lines.push("Use hexz_search to find control mappings for specific domains.");
-            } else if (fw === "owasp") {
-              lines.push("OWASP Top 10: A01-A10 including Injection, Broken Auth, XSS, SSRF");
-              lines.push("Use hexz_search for specific category guidance.");
-            } else {
-              lines.push(`Unknown: ${args.framework}. Use: mitre, nist, owasp`);
-            }
-            return lines.join("\n");
+            return readCyberFrameworkMapping(CYBER_DIR, args.framework);
           }
           if (args.domain) {
-            const q = args.domain.toLowerCase();
-            const match = CYBER_DOMAINS.find(d => d.id.includes(q) || d.label.toLowerCase().includes(q) || d.keywords.some(k => k.includes(q)));
+            const domainArg: string = args.domain;
+            const q = domainArg.toLowerCase().replace(/[^a-z0-9]/g, "-");
+            const match = CYBER_DOMAINS.find(d => d.id.includes(q) || d.label.toLowerCase().includes(domainArg.toLowerCase()) || d.keywords.some(k => k.includes(q)));
             if (match) {
               lines.push(`Domain: ${match.label}`);
               lines.push(`Keywords: ${match.keywords.join(", ")}`);
-              lines.push("Use hexz_search for in-depth methodology and tools for this domain.");
+              const skillContent = readCyberSkill(CYBER_DIR, match.dir);
+              lines.push(`\n══ Skill Content ══\n${skillContent.slice(0, 3000)}`);
               return lines.join("\n");
             }
-            lines.push(`Domain '${args.domain}' not found. Available:`);
+            const mukulContent = readCyberSkill(CYBER_DIR, q);
+            if (mukulContent && !mukulContent.startsWith("No skill file")) {
+              lines.push(`Skill: ${args.domain}`);
+              lines.push(`\n══ Skill Content ══\n${mukulContent.slice(0, 3000)}`);
+              return lines.join("\n");
+            }
+            lines.push(`Domain '${args.domain}' not found. Available domains from Masriyan:`);
             for (const d of CYBER_DOMAINS) lines.push(`  ${d.id} — ${d.label}`);
+            lines.push("\nUse list=true to see all 769+ skills.");
+            lines.push("Frameworks: mitre, nist, owasp");
             return lines.join("\n");
           }
           if (args.query) {
             const q = args.query.toLowerCase();
-            lines.push(`Searching cybersecurity domains for: ${args.query}`);
+            lines.push(`Searching cybersecurity for: ${args.query}`);
             const matched = CYBER_DOMAINS.filter(d => d.label.toLowerCase().includes(q) || d.keywords.some(k => k.includes(q)));
             if (matched.length) {
               for (const m of matched) lines.push(`  ${m.id} — ${m.label}`);
-            } else {
-              lines.push("No direct domain match. All available:");
-              for (const d of CYBER_DOMAINS) lines.push(`  ${d.id} — ${d.label}`);
             }
-            lines.push("\nFramework mappings: mitre, nist, owasp");
+            const skills = listCyberSkills(CYBER_DIR);
+            const skillMatches = skills.filter(s => s.toLowerCase().includes(q));
+            if (skillMatches.length) {
+              lines.push(`\nSkill matches (${skillMatches.length}):`);
+              for (const s of skillMatches.slice(0, 20)) lines.push(`  - ${s}`);
+              if (skillMatches.length > 20) lines.push(`  ... and ${skillMatches.length - 20} more`);
+            }
+            if (!matched.length && !skillMatches.length) {
+              lines.push("No matches found.");
+            }
+            lines.push("\nUse domain=<name> to view a skill. Frameworks: mitre, nist, owasp");
             return lines.join("\n");
           }
-          lines.push("Use domain=, query=, or framework=");
-          lines.push("\nAll domains:");
+          lines.push("Use domain=, query=, framework=, or list=true");
+          lines.push("\nMasriyan domains (15):");
           for (const d of CYBER_DOMAINS) lines.push(`  ${d.id} — ${d.label}`);
+          const totalSkills = listCyberSkills(CYBER_DIR).length;
+          lines.push(`\nTotal skills available: ${totalSkills}`);
           lines.push("\nFrameworks: mitre, nist, owasp");
           return lines.join("\n");
         },

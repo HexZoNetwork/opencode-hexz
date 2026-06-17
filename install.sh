@@ -102,6 +102,17 @@ preflight_git() {
   echo "  Install: sudo apt install git"
 }
 
+preflight_puppeteer() {
+  if command -v chromium-browser &>/dev/null || command -v chromium &>/dev/null || command -v google-chrome &>/dev/null; then
+    echo -e "${GREEN}✓${RESET} Chromium/Chrome detected for Puppeteer"
+    return 0
+  fi
+
+  echo -e "${YELLOW}⚠ Chromium not found. hexz_webss requires it.${RESET}"
+  echo "  Install: sudo apt install chromium-browser"
+  echo "  Or: npx puppeteer browsers install chrome"
+}
+
 preflight_node() {
   if command -v node &>/dev/null; then
     echo -e "${GREEN}✓${RESET} node $(node --version)"
@@ -114,6 +125,7 @@ echo -e "${BOLD}Preflight checks:${RESET}"
 preflight_bun
 preflight_git
 preflight_node
+preflight_puppeteer
 echo ""
 
 echo -e "${BOLD}Building plugin...${RESET}"
@@ -178,6 +190,9 @@ install_to() {
   if [ -d "$SCRIPT_DIR/src/design" ]; then
     cp -r "$SCRIPT_DIR/src/design" "$hexzdir/design"
   fi
+  if [ -d "$SCRIPT_DIR/src/cybersecurity" ]; then
+    cp -r "$SCRIPT_DIR/src/cybersecurity" "$hexzdir/cybersecurity"
+  fi
 
   cat > "$hexzdir/package.json" << 'EOF'
 {
@@ -188,7 +203,7 @@ EOF
   cat > "$plugdir/package.json" << 'EOF'
 {
   "name": "opencode-hexz",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "HEXZ — OpenCode Upgrade Layer",
   "type": "module",
   "main": "index.ts",
@@ -231,14 +246,22 @@ description: Revert to default opencode behavior
 HEXZ_DEACTIVATE
 EOF
 
+  cat > "$dest/commands/models.md" << 'EOF'
+---
+description: Open HEXZ model routing TUI. Configure per-task model routing or disable routing (single model passthrough).
+---
+HEXZ_MODELS
+EOF
+
   echo -e "${GREEN}✓${RESET} ${label}"
-  echo -e "    plugins/hexz/index.ts    → ${hexzdir}/index.ts"
-  echo -e "    plugins/hexz/index.js    → ${hexzdir}/index.js"
-  echo -e "    plugins/hexz/design/     → ${hexzdir}/design/"
-  echo -e "    plugins/package.json     → ${plugdir}/package.json"
-  echo -e "    plugins/index.ts         → ${plugdir}/index.ts"
-  echo -e "    commands/active.md       → ${dest}/commands/active.md"
-  echo -e "    commands/off.md          → ${dest}/commands/off.md"
+  echo -e "    plugins/hexz/index.ts      → ${hexzdir}/index.ts"
+  echo -e "    plugins/hexz/index.js      → ${hexzdir}/index.js"
+  echo -e "    plugins/hexz/design/       → ${hexzdir}/design/"
+  echo -e "    plugins/hexz/cybersecurity/ → ${hexzdir}/cybersecurity/"
+  echo -e "    plugins/package.json       → ${plugdir}/package.json"
+  echo -e "    plugins/index.ts           → ${plugdir}/index.ts"
+  echo -e "    commands/active.md         → ${dest}/commands/active.md"
+  echo -e "    commands/off.md            → ${dest}/commands/off.md"
 }
 
 echo -e "${BOLD}Installing:${RESET}"
@@ -359,7 +382,11 @@ echo -e "  ${BOLD}Tools:${RESET}"
 echo -e "    ${CYAN}hexz_search${RESET}    Search the web"
 echo -e "    ${CYAN}hexz_scan${RESET}      Security audit"
 echo -e "    ${CYAN}hexz_design${RESET}    Design scaffolds"
-echo -e "    ${CYAN}hexz_image${RESET}     Image analysis"
+echo -e "    ${CYAN}hexz_image${RESET}     Image analysis (OCR)"
+echo -e "    ${CYAN}hexz_webss${RESET}     Web screenshots (Puppeteer)"
+echo -e "    ${CYAN}hexz_mcp${RESET}       MCP server management"
+echo -e "    ${CYAN}hexz_memory${RESET}    Persistent agent memory"
+echo -e "    ${CYAN}hexz_pr${RESET}        Git PR workflow"
 echo -e "    ${CYAN}hexz_mkp${RESET}       Plugin marketplace"
 echo ""
 echo -e "  https://github.com/hexzonetwork/opencode-hexz"

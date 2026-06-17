@@ -6,7 +6,7 @@ import {
 
 describe("VERSION", () => {
   it("matches package.json version", () => {
-    expect(VERSION).toBe("1.4.0")
+    expect(VERSION).toBe("1.5.0")
   })
 })
 

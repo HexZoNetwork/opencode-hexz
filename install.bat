@@ -73,10 +73,19 @@ echo [WARN] git not found. Some features need git.
 where node >nul 2>nul
 if %errorlevel% equ 0 (
   for /f "tokens=*" %%i in ('node --version 2^>nul') do set "NODE_VER=%%i"
-  echo [OK] node !NODE_VER!
-  goto :build_plugin
+echo   [OK] node !NODE_VER!
+  goto :preflight_puppeteer
 )
 echo   node not found (optional)
+
+:preflight_puppeteer
+where chromium >nul 2>nul
+if %errorlevel% equ 0 (
+  echo [OK] Chromium found for Puppeteer
+  goto :build_plugin
+)
+echo [WARN] Chromium not found. hexz_webss requires it.
+echo   Install manually or let Puppeteer download it during npm install.
 
 :build_plugin
 echo.
@@ -158,7 +167,11 @@ echo   Tools:
 echo     hexz_search    Search the web
 echo     hexz_scan      Security audit
 echo     hexz_design    Design scaffolds
-echo     hexz_image     Image analysis
+echo     hexz_image     Image analysis (OCR)
+echo     hexz_webss     Web screenshots (Puppeteer)
+echo     hexz_mcp       MCP server management
+echo     hexz_memory    Persistent agent memory
+echo     hexz_pr        Git PR workflow
 echo     hexz_mkp       Plugin marketplace
 echo.
 echo   https://github.com/hexzonetwork/opencode-hexz
@@ -202,9 +215,12 @@ if not exist "%dest%\commands" mkdir "%dest%\commands"
 
 copy "%SCRIPT_DIR%\dist\hexz.js" "%hexzdir%\index.js" >nul
 copy "%SCRIPT_DIR%\src\hexz.ts" "%hexzdir%\index.ts" >nul
-if exist "%SCRIPT_DIR%\src\design" (
-  xcopy "%SCRIPT_DIR%\src\design" "%hexzdir%\design\" /e /i /q /y >nul
-)
+  if exist "%SCRIPT_DIR%\src\design" (
+    xcopy /E /I /Y "%SCRIPT_DIR%\src\design" "%hexzdir%\design" >nul
+  )
+  if exist "%SCRIPT_DIR%\src\cybersecurity" (
+    xcopy /E /I /Y "%SCRIPT_DIR%\src\cybersecurity" "%hexzdir%\cybersecurity" >nul
+  )
 
 (
 echo {
@@ -252,10 +268,16 @@ echo }
 >> "%dest%\commands\off.md" echo ---
 >> "%dest%\commands\off.md" echo HEXZ_DEACTIVATE
 
+> "%dest%\commands\models.md" echo ---
+>> "%dest%\commands\models.md" echo description: Open HEXZ model routing TUI. Configure per-task model routing.
+>> "%dest%\commands\models.md" echo ---
+>> "%dest%\commands\models.md" echo HEXZ_MODELS
+
 echo [OK] %label%
 echo     plugins\hexz\index.ts   -^> %hexzdir%\index.ts
 echo     plugins\hexz\index.js   -^> %hexzdir%\index.js
 echo     plugins\hexz\design\    -^> %hexzdir%\design\
+echo     plugins\hexz\cybersecurity\ -^> %hexzdir%\cybersecurity\
 echo     plugins\package.json    -^> %plugdir%\package.json
 echo     plugins\index.ts        -^> %plugdir%\index.ts
 echo     commands\active.md      -^> %dest%\commands\active.md
