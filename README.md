@@ -1,29 +1,56 @@
-# HEXZ — OpenCode Upgrade Layer
+<div align="center">
 
-![License](https://img.shields.io/github/license/hexzonetwork/opencode-hexz)
-![Version](https://img.shields.io/github/v/release/hexzonetwork/opencode-hexz)
-![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey)
-![Bun](https://img.shields.io/badge/runtime-bun-%23f9f9f9?logo=bun)
+# HEXZ
+### OpenCode Upgrade Layer
+
+[![License](https://img.shields.io/badge/license-MIT-brightgreen?style=flat-square)](LICENSE)
+[![Version](https://img.shields.io/badge/version-v1.5.0-blueviolet?style=flat-square)](https://github.com/hexzonetwork/opencode-hexz/releases)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-orange?style=flat-square)](#)
+[![Bun](https://img.shields.io/badge/runtime-bun-fbf0df?style=flat-square&logo=bun&logoColor=black)](https://bun.sh)
+
+A plugin for [OpenCode](https://opencode.ai) — anti-slop enforcement, 769+ cybersecurity skills, design scaffolding, web search, OCR, screenshots, MCP, persistent memory, and PR automation.
+
+</div>
+
+---
 
 > [!WARNING]
-> This plugin is recommended for **Linux**. Windows support via `install.bat` is experimental — contributions welcome.
+> Recommended for **Linux**. Windows support via `install.bat` is experimental — contributions welcome.
 
-A plugin for [OpenCode](https://opencode.ai) that upgrades your AI coding assistant with anti-slop language enforcement, cybersecurity scanning (769+ skills, MITRE/NIST/OWASP mappings), design scaffolding (150+ design systems), web search, image OCR, website screenshots, MCP server management, persistent agent memory, git PR automation, and a plugin marketplace.
+## Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Model Routing](#model-routing)
+- [Cybersecurity Suite](#cybersecurity-suite)
+- [Build Workflow](#build-workflow)
+- [Anti-Slop Rules](#anti-slop-rules)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Uninstall](#uninstall)
+- [Security](#security)
+
+---
 
 ## Features
 
-- **Anti-Slop Engine** — Banned filler words (delve, leverage, robust, etc.), forced technical writing, varied sentence structure
-- **Cybersecurity Suite** — 769+ skills across 15 domains (recon, exploit dev, malware analysis, forensics, red/blue team, etc.) with MITRE ATT&CK, NIST CSF 2.0, and OWASP Top 10 mappings
-- **Design Scaffold** — Generate HTML/CSS mockups with 150+ design systems (Apple, Stripe, Notion, etc.) and 109+ templates
-- **Web Search** — DuckDuckGo integration; must call before writing code
-- **Image OCR** — Text extraction from screenshots, error messages, diagrams via tesseract.js
-- **Web Screenshots** — Capture any URL via Puppeteer (full-page, device emulation, custom CSS)
-- **MCP Server Support** — Connect to Model Context Protocol servers for DB, filesystem, and API access
-- **Plugin Marketplace** — Install community plugins from GitHub or npm
-- **Git PR Workflow** — Status, diff, and create pull requests with AI descriptions
-- **Persistent Memory** — Project context, preferences, and session summaries survive restarts
-- **Model Routing** — Per-task model routing (e.g., design → gpt-4o, scan → claude-3-opus)
-- **Build Workflow** — Enforced research → plan → simulate → build → scan → review cycle
+| | |
+|---|---|
+| **Anti-Slop Engine** | Banned filler words (delve, leverage, robust, etc.), forced technical writing, varied sentence structure |
+| **Cybersecurity Suite** | 769+ skills across 15 domains with MITRE ATT&CK, NIST CSF 2.0, and OWASP Top 10 mappings |
+| **Design Scaffold** | HTML/CSS mockups across 150+ design systems and 109+ templates |
+| **Web Search** | DuckDuckGo integration — called before writing code |
+| **Image OCR** | Text extraction from screenshots, errors, diagrams via tesseract.js |
+| **Web Screenshots** | Full-page capture via Puppeteer, device emulation, custom CSS |
+| **MCP Server Support** | Connect to Model Context Protocol servers for DB, filesystem, API access |
+| **Plugin Marketplace** | Install community plugins from GitHub or npm |
+| **Git PR Workflow** | Status, diff, and AI-generated pull request descriptions |
+| **Persistent Memory** | Project context, preferences, and session summaries survive restarts |
+| **Model Routing** | Per-task model routing (e.g. design → gpt-4o, scan → claude-3-opus) |
+| **Build Workflow** | Enforced research → plan → simulate → build → scan → review cycle |
+
+---
 
 ## Installation
 
@@ -42,7 +69,8 @@ bun run build
 ./install.sh
 ```
 
-The installer prompts you to choose:
+The installer prompts for an install target:
+
 1. **Project-level** — `.opencode/` in current directory
 2. **Global** — `~/.config/opencode/`
 3. **Both**
@@ -58,31 +86,33 @@ cp dist/hexz.js ~/.config/opencode/plugins/hexz.js
 echo '{"plugin": ["opencode-hexz"]}' > opencode.json
 ```
 
+---
+
 ## Usage
 
 ### Activate / Deactivate
 
 ```
-/active     — Engage HEXZ upgrade layer
-/off        — Revert to default OpenCode behavior
+/active     Engage HEXZ upgrade layer
+/off        Revert to default OpenCode behavior
 ```
 
-### Available Tools
+### Tools
 
 | Tool | Description |
-|------|-------------|
-| `hexz_search` | Web search via DuckDuckGo — call **before** writing code |
+|---|---|
+| `hexz_search` | Web search via DuckDuckGo — call before writing code |
 | `hexz_scan` | Security audit: injection, XSS, secrets, dependency vulns, CVSS v3.1 |
 | `hexz_design` | Generate HTML/CSS mockups from a brief |
 | `hexz_image` | OCR text extraction from screenshots, errors, diagrams |
-| `hexz_webss` | Website screenshots via Puppeteer (full-page, device emulation) |
-| `hexz_cyber` | Cybersecurity skills (769+) + MITRE/NIST/OWASP framework mappings |
-| `hexz_mcp` | MCP server management — connect/discover/call external tools |
-| `hexz_memory` | Persistent agent memory — get/set/list/clear across sessions |
+| `hexz_webss` | Website screenshots via Puppeteer |
+| `hexz_cyber` | Cybersecurity skills (769+) + framework mappings |
+| `hexz_mcp` | MCP server management — connect/discover/call |
+| `hexz_memory` | Persistent agent memory — get/set/list/clear |
 | `hexz_pr` | Git PR workflow — status, diff, create with AI descriptions |
 | `hexz_mkp` | Plugin marketplace — install from GitHub or npm |
 | `hexz_status` | Show active/inactive, uptime, search count |
-| `hexz_sim` | Simulation sandbox — call **before** destructive actions |
+| `hexz_sim` | Simulation sandbox — call before destructive actions |
 | `hexz_codebase` | Scan project, generate `codebase.md` with file connections |
 
 ### Commands
@@ -99,39 +129,42 @@ echo '{"plugin": ["opencode-hexz"]}' > opencode.json
 /hexz_memory action=set key=project_context value="React app"
 /hexz_pr action=create title="feat: add dark mode"
 /hexz_mkp owner/repo
-/models     — Model routing TUI
+/models     Model routing TUI
 ```
 
-### Model Routing
+---
 
-Configure per-task model routing via the interactive TUI (`/models` or Ctrl+P) or programmatically via `hexz_memory`.
+## Model Routing
 
-**Default: No routing** (single model passthrough).
+Per-task model routing via the interactive TUI (`/models` or `Ctrl+P`) or programmatically through `hexz_memory`.
+
+**Default: no routing** (single model passthrough).
 
 ```bash
 /models     # Opens TUI: toggle routing on/off, add/remove routes, clear all
 ```
 
-Example routes:
 | Keywords | Model |
-|----------|-------|
+|---|---|
 | `design, ui, mockup` | gpt-4o |
 | `scan, security, audit` | claude-3-opus |
 | `cyber, exploit, malware` | claude-3-opus |
 
-Programmatic access:
 ```
 hexz_memory action=get key=model_routes
 hexz_memory action=set key=model_routes value='[{"model":"gpt-4o","keywords":"design,ui"}]'
 ```
 
+---
+
 ## Cybersecurity Suite
 
-HEXZ bundles 769+ cybersecurity skills from two curated collections:
+769+ skills from two curated collections.
 
 **Cyber Skills Domains** (15 domains) — `src/cybersecurity/skills/`
+
 | Domain | Topics |
-|--------|--------|
+|---|---|
 | Recon & OSINT | Subdomain enum, DNS analysis, tech fingerprinting |
 | Vulnerability Scanning | CVSS calculator, config auditing, dependency auditing |
 | Exploit Development | Payload generation, buffer overflow analysis |
@@ -149,12 +182,14 @@ HEXZ bundles 769+ cybersecurity skills from two curated collections:
 | Blue Team Defense | Hardening, detection engineering, patching |
 
 **Cyber Skills** (754 specialized skills) — `src/cybersecurity/skills-mukul/`
-Covers forensics (disk, memory, browser, mobile), cloud security (AWS, Azure, GCP, K8s, Docker), malware analysis (Android, ELF, Go, PowerShell), network analysis (DNS, C2, PCAP), AD abuse, IoT/SCADA, phishing analysis, and more.
+
+Forensics (disk, memory, browser, mobile), cloud security (AWS, Azure, GCP, K8s, Docker), malware analysis (Android, ELF, Go, PowerShell), network analysis (DNS, C2, PCAP), AD abuse, IoT/SCADA, phishing analysis, and more.
 
 **Framework Mappings** — `src/cybersecurity/mappings/`
+
 - **MITRE ATT&CK** — Navigator layer (v4.5, Enterprise v14), 218 techniques across 14/14 tactics
 - **NIST CSF 2.0** — Full alignment: Govern, Identify, Protect, Detect, Respond, Recover
-- **OWASP Top 10** — A01-A10 with detailed mappings
+- **OWASP Top 10** — A01–A10 with detailed mappings
 
 ```bash
 hexz_cyber domain=recon          # Load Recon & OSINT skill
@@ -165,26 +200,35 @@ hexz_cyber query=forensics       # Search all skills for forensics
 hexz_cyber list=true             # List all 769+ available skills
 ```
 
+---
+
 ## Build Workflow
 
 When HEXZ is active, every build follows this cycle:
 
-1. **RESEARCH** — `hexz_search()` before writing code
-2. **PLAN** — Architecture, data flow, routes, errors, edge cases
-3. **SIMULATE** — `hexz_sim()` before destructive actions (Write/Edit/rm/mv/cp)
-4. **BUILD** — Production code with error handling, validation, logging
-5. **SCAN** — `hexz_scan()` for security vulnerabilities
-6. **REVIEW** — Self-review for bugs, race conditions, secrets
+| Step | Action |
+|---|---|
+| 1. Research | `hexz_search()` before writing code |
+| 2. Plan | Architecture, data flow, routes, errors, edge cases |
+| 3. Simulate | `hexz_sim()` before destructive actions (Write/Edit/rm/mv/cp) |
+| 4. Build | Production code with error handling, validation, logging |
+| 5. Scan | `hexz_scan()` for security vulnerabilities |
+| 6. Review | Self-review for bugs, race conditions, secrets |
 
 > [!IMPORTANT]
-> Destructive actions (Write, Edit, rm, mv, cp) are **blocked** unless you create a simulation first via `hexz_sim()`.
+> Destructive actions (Write, Edit, rm, mv, cp) are **blocked** unless a simulation is created first via `hexz_sim()`.
+
+---
 
 ## Anti-Slop Rules
 
-HEXZ enforces technical writing by eliminating AI-tell patterns:
-- **Banned**: pivotal, crucial, vital, robust, seamless, delve, leverage, utilize, ecosystem, paradigm, etc.
-- **Required**: Contractions, varied sentence length (3–35 words), first-person when appropriate
-- **Forbidden**: Compliments as openers, 3+ same-length sentences, lists with exactly 3 items
+HEXZ enforces technical writing by eliminating AI-tell patterns.
+
+- **Banned** — pivotal, crucial, vital, robust, seamless, delve, leverage, utilize, ecosystem, paradigm, etc.
+- **Required** — Contractions, varied sentence length (3–35 words), first-person when appropriate
+- **Forbidden** — Compliments as openers, 3+ same-length sentences, lists with exactly 3 items
+
+---
 
 ## Configuration
 
@@ -200,9 +244,12 @@ HEXZ enforces technical writing by eliminating AI-tell patterns:
 ### Data Storage
 
 HEXZ persists data to `~/.config/opencode/hexz-memory.json`:
+
 - Active state, search count, session count
 - Model routing config (routes + enabled/disabled)
 - Project context and session summaries
+
+---
 
 ## Development
 
@@ -219,6 +266,8 @@ bun run lint         # Biome lint
 ./install.sh .       # Test locally
 ```
 
+---
+
 ## Uninstall
 
 ```bash
@@ -228,6 +277,8 @@ rm -rf .opencode/plugins/hexz
 rm -rf ~/.config/opencode/plugins/hexz
 ```
 
+---
+
 ## Security
 
 - All user inputs are sanitized before use
@@ -235,12 +286,10 @@ rm -rf ~/.config/opencode/plugins/hexz
 - Search queries are filtered for injection attempts
 - Secrets are redacted from tool output (API keys, tokens, passwords, private keys)
 
-## License
+---
 
-MIT
+<div align="center">
 
-## Links
+**[MIT License](LICENSE)** · [OpenCode](https://opencode.ai) · [Report Issues](https://github.com/hexzonetwork/opencode-hexz/issues) · [Contribute](CONTRIBUTING.md)
 
-- [OpenCode](https://opencode.ai)
-- [Report Issues](https://github.com/hexzonetwork/opencode-hexz/issues)
-- [Contribute](CONTRIBUTING.md)
+</div>
