@@ -198,6 +198,7 @@ const state = {
   searches: 0,
   lastSearchTime: 0,
   msgCount: 0,
+  skipScan: false,
   diagnostics: [] as Array<{ file: string; line: number; message: string; severity: string }>,
 };
 const mcpConnections: Array<{ url: string; client: any }> = [];
@@ -224,36 +225,6 @@ function setMemory(key: string, value: string): void {
   memStore.set(key, value);
   saveMemory();
 }
-const ANSI = {
-  hide: '\x1b[?25l', show: '\x1b[?25h',
-  up: (n = 1) => `\x1b[${n}A`, down: (n = 1) => `\x1b[${n}B`,
-  clearLine: '\x1b[2K', clearScreen: '\x1b[2J',
-  moveTo: (row: number, col: number) => `\x1b[${row};${col}H`,
-  cyan: '\x1b[36m', green: '\x1b[32m', red: '\x1b[31m',
-  yellow: '\x1b[33m', dim: '\x1b[2m', bold: '\x1b[1m',
-  reset: '\x1b[0m', inverse: '\x1b[7m',
-} as const;
-function isTTY(): boolean { return Boolean(process.stdin.isTTY); }
-async function readKey(): Promise<string> {
-  return new Promise(resolve => {
-    const cb = (data: Buffer) => {
-      process.stdin.removeListener('data', cb);
-      process.stdin.setRawMode(false);
-      resolve(data.toString());
-    };
-    process.stdin.setRawMode(true);
-    process.stdin.once('data', cb);
-  });
-}
-function parseKey(s: string): string {
-  if (s === '\x1b[A' || s === '\x1bOA') return 'up';
-  if (s === '\x1b[B' || s === '\x1bOB') return 'down';
-  if (s === '\r' || s === '\n') return 'enter';
-  if (s === '\x1b' || s === '\x03') return 'escape';
-  if (s === '\x10') return 'ctrl-p';
-  if (s.length === 1 && s >= ' ') return s;
-  return '';
-}
 interface ModelRoute { model: string; keywords: string; }
 function getModelRoutes(): ModelRoute[] {
   try {
@@ -277,136 +248,6 @@ function getModelForTask(task: string): string | null {
   }
   return null;
 }
-async function showModelRoutingTUI(): Promise<string> {
-  if (!isTTY()) return "Interactive TUI requires a TTY. Use hexz_memory to configure routes directly.";
-  const stdout = process.stdout;
-  let rendered = 0;
-  const wl = (line: string) => { stdout.write(`${ANSI.clearLine}${line}\n`); rendered++; };
-  const clr = () => { if (rendered > 0) { stdout.write(ANSI.up(rendered)); rendered = 0; } };
-  const rr = () => { process.stdin.setRawMode(true); };
-  const enabled = (): boolean => getMemory("model_routing_enabled") === "true";
-  const routeCount = (): number => { try { const r = getMemory("model_routes"); return r ? JSON.parse(r).length : 0; } catch { return 0; } };
-  const renderMenu = (cursor: number, items: string[]): void => {
-    clr();
-    const e = enabled();
-    const rc = routeCount();
-    wl(`${ANSI.bold}${ANSI.cyan}HEXZ Model Routing${ANSI.reset}`);
-    wl(`${e ? `${ANSI.green}●${ANSI.reset}` : `${ANSI.red}○${ANSI.reset}`} ${e ? `Routing ON (${rc} route${rc !== 1 ? 's' : ''})` : 'No Routing (single model pass-through)'}`);
-    wl("");
-    for (let i = 0; i < items.length; i++) {
-      const prefix = i === cursor ? `${ANSI.inverse} >${ANSI.reset}${ANSI.inverse}` : "  ";
-      const suffix = i === cursor ? `${ANSI.reset}` : "";
-      wl(`${prefix} ${items[i]}${suffix}`);
-    }
-    wl("");
-    wl(`${ANSI.dim}↑↓ navigate  ↵ select  esc back${ANSI.reset}`);
-    rr();
-  };
-  const e = enabled();
-  const routes = getModelRoutes();
-  const items = [
-    e ? "Disable Routing" : "Enable Routing",
-    "Add Route (model + keywords)",
-    ...(routes.length > 0 ? ["Remove Route", "Clear All Routes"] : []),
-    "Back",
-  ];
-  let cursor = 0;
-  renderMenu(cursor, items);
-  while (true) {
-    const raw = await readKey();
-    const key = parseKey(raw);
-    if (key === 'up') { cursor = (cursor - 1 + items.length) % items.length; renderMenu(cursor, items); }
-    else if (key === 'down') { cursor = (cursor + 1) % items.length; renderMenu(cursor, items); }
-    else if (key === 'escape') { clr(); return "[HEXZ Models] Closed."; }
-    else if (key === 'enter') {
-      const selected = items[cursor];
-      clr();
-      const curRoutes = getModelRoutes();
-      if (selected === "Enable Routing") {
-        setMemory("model_routing_enabled", "true");
-        stdout.write(`${ANSI.green}✓${ANSI.reset} Routing enabled\n`);
-        return "[HEXZ Models] Routing enabled. Add routes with 'Add Route'.";
-      }
-      if (selected === "Disable Routing") {
-        setMemory("model_routing_enabled", "false");
-        stdout.write(`${ANSI.yellow}○${ANSI.reset} Routing disabled\n`);
-        return "[HEXZ Models] Routing disabled. Using single model pass-through.";
-      }
-      if (selected === "Add Route (model + keywords)") {
-        stdout.write(`${ANSI.bold}Add Route${ANSI.reset}\n`);
-        stdout.write("Model name (e.g. gpt-4o, claude-3-opus): ");
-        rr();
-        const modelRaw = await readKey();
-        const model = modelRaw.trim();
-        stdout.write(`\n${ANSI.dim}${model}${ANSI.reset}\n`);
-        stdout.write("Task keywords (comma-separated, e.g. design,ui,mockup): ");
-        rr();
-        const kwRaw = await readKey();
-        const keywords = kwRaw.trim();
-        stdout.write(`\n${ANSI.dim}${keywords}${ANSI.reset}\n`);
-        if (model && keywords) {
-          const current = getModelRoutes();
-          current.push({ model, keywords });
-          setModelRoutes(current);
-          stdout.write(`${ANSI.green}✓${ANSI.reset} Route added: ${model} → ${keywords}\n`);
-        } else {
-          stdout.write(`${ANSI.red}✗${ANSI.reset} Both model and keywords required.\n`);
-        }
-        return "[HEXZ Models] Route added.";
-      }
-      if (selected === "Remove Route") {
-        const removeItems = curRoutes.map((r: ModelRoute, i: number) => `${i + 1}. ${r.model} → ${r.keywords}`);
-        removeItems.push("Cancel");
-        let rCursor = 0;
-        const renderRemove = () => {
-          clr();
-          wl(`${ANSI.bold}${ANSI.cyan}Select route to remove:${ANSI.reset}`);
-          wl("");
-          for (let i = 0; i < removeItems.length; i++) {
-            const p = i === rCursor ? `${ANSI.inverse} >${ANSI.reset}${ANSI.inverse}` : "  ";
-            const s = i === rCursor ? `${ANSI.reset}` : "";
-            wl(`${p} ${removeItems[i]}${s}`);
-          }
-          wl("");
-          wl(`${ANSI.dim}↑↓ navigate  ↵ select  esc back${ANSI.reset}`);
-          rr();
-        };
-        renderRemove();
-        while (true) {
-          const rRaw = await readKey();
-          const rKey = parseKey(rRaw);
-          if (rKey === 'up') { rCursor = (rCursor - 1 + removeItems.length) % removeItems.length; renderRemove(); }
-          else if (rKey === 'down') { rCursor = (rCursor + 1) % removeItems.length; renderRemove(); }
-          else if (rKey === 'escape') { clr(); break; }
-          else if (rKey === 'enter') {
-            clr();
-            if (removeItems[rCursor] === "Cancel") break;
-            const idx = rCursor;
-            const fresh = getModelRoutes();
-            if (idx >= 0 && idx < fresh.length) {
-              const removed = fresh.splice(idx, 1);
-              setModelRoutes(fresh);
-              stdout.write(`${ANSI.green}✓${ANSI.reset} Removed route: ${removed[0]!.model}\n`);
-            }
-            return "[HEXZ Models] Route removed.";
-          }
-        }
-        cursor = 0;
-        renderMenu(cursor, items);
-        continue;
-      }
-      if (selected === "Clear All Routes") {
-        setModelRoutes([]);
-        stdout.write(`${ANSI.yellow}⚠${ANSI.reset} All routes cleared.\n`);
-        return "[HEXZ Models] All routes cleared.";
-      }
-      if (selected === "Back") break;
-    }
-  }
-  clr();
-  return "[HEXZ Models] Closed.";
-}
-
 const searchCache = new Map<string, SearchCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const RATE_LIMIT_MS = 3000;
@@ -832,6 +673,14 @@ hexz_mcp   — MCP server management. Connect to external servers for DB/FS/API.
 hexz_memory — Persistent memory across sessions. Store project context & preferences.
 hexz_pr    — Git PR workflow. Status, diff, create pull requests with gh CLI.
 
+COMMANDS:
+/route — Show model routing status
+/route enable|disable — Toggle routing on/off
+/route add &lt;model&gt; &lt;keywords&gt; — Add route
+/route remove &lt;n&gt; — Remove route by number
+/active — Activate HEXZ senior-engineer mode
+/off    — Deactivate HEXZ, revert to default behavior
+
 WORKFLOW:
 - Read tools (Read/Glob/Grep): IMAGINE impact first.
 - Destructive tools (Write/Edit/Bash-rm/mv/cp/>): SIMULATE first.
@@ -1059,13 +908,6 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         output.parts = [];
         return;
       }
-      if (text.includes("HEXZ_MODELS") || text.trim() === "/models" || text.includes("\x10")) {
-        output.parts = [];
-        const result = await showModelRoutingTUI();
-        output.parts.push({ text: result } as any);
-        return;
-      }
-
     },
     "experimental.chat.system.transform": async (_input, output) => {
       if (!state.active) return;
@@ -1091,10 +933,9 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         output.parts = [];
         return;
       }
-      if (input.command === "models") {
-        output.parts = [];
-        const result = await showModelRoutingTUI();
-        output.parts.push({ text: result } as any);
+      if (input.command === "route") {
+        state.skipScan = true;
+        setTimeout(() => { state.skipScan = false; }, 20000);
         return;
       }
     },
@@ -1107,19 +948,13 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         output.model = routed;
       }
     },
-    "permission.ask": async (input, output) => {
-      if (!state.active) return;
-      const safe = ["read", "glob", "grep", "ls"];
-      if (input.type && safe.some((s) => input.title.toLowerCase().includes(s))) {
-        output.status = "allow";
-      }
-    },
-    "shell.env": async (_input, output) => {
-      if (!state.active) return;
-      output.env["HEXZ"] = "1";
-      output.env["NODE_ENV"] = output.env["NODE_ENV"] ?? "development";
-    },
     "tool.execute.before": async (input, output) => {
+      if (state.skipScan) {
+        const blocked = ["Read", "Glob", "Grep", "hexz_codebase", "hexz_status"];
+        if (blocked.includes(input.tool)) {
+          throw new Error("Not available. Use hexz_memory and question().");
+        }
+      }
       if (!state.active) return;
       if (input.tool !== "Bash" && input.tool !== "Write" && input.tool !== "Edit") return;
       const args = JSON.stringify(output.args ?? "");
