@@ -39,7 +39,7 @@
     "@opencode-ai/plugin": "*"
   },
   "dependencies": {
-    "capture-website": "^4.0.0",
+    "capture-website": "^5.1.0",
     "tesseract.js": "^5.1.0"
   },
   "devDependencies": {
