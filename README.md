@@ -57,7 +57,7 @@ A plugin for [OpenCode](https://opencode.ai) — anti-slop enforcement, 769+ cyb
 ### Prerequisites
 
 - [Bun](https://bun.sh) runtime (v1.0+)
-- [OpenCode](https://opencode.ai) installed
+- [OpenCode](https://opencode.ai) or [MiMo Code](https://mimo.xiaomi.com/mimocode/start) installed
 
 ### Quick Install
 
@@ -74,6 +74,16 @@ The installer prompts for an install target:
 1. **Project-level** — `.opencode/` in current directory
 2. **Global** — `~/.config/opencode/`
 3. **Both**
+
+For MiMo Code, add `--mimo` or `-mm`:
+
+```bash
+./install.sh --mimo        # project-level: .mimocode/tools/ + mimocode.json
+./install.sh --mimo -g     # global: ~/.config/mimocode/
+./install.sh -mm -b        # both
+```
+
+MiMo Code uses a native adapter, not the OpenCode hook plugin. It installs `hexz_status`, `hexz_doctor`, `hexz_scan`, `hexz_search`, `hexz_memory`, and `hexz_design` from `.mimocode/tools/hexz.ts` or `~/.config/mimocode/tools/hexz.ts`.
 
 > [!IMPORTANT]
 > The installer automatically downloads Chromium for Puppeteer (required by `hexz_webss`). This may take a moment.
@@ -112,6 +122,7 @@ echo '{"plugin": ["opencode-hexz"]}' > opencode.json
 | `hexz_pr` | Git PR workflow — status, diff, create with AI descriptions |
 | `hexz_mkp` | Plugin marketplace — install from GitHub or npm |
 | `hexz_status` | Show active/inactive, uptime, search count |
+| `hexz_doctor` | Check runtime, scanner, browser, git, and safety readiness |
 | `hexz_sim` | Simulation sandbox — call before destructive actions |
 | `hexz_codebase` | Scan project, generate `codebase.md` with file connections |
 
@@ -129,6 +140,7 @@ echo '{"plugin": ["opencode-hexz"]}' > opencode.json
 /hexz_memory action=set key=project_context value="React app"
 /hexz_pr action=create title="feat: add dark mode"
 /hexz_mkp owner/repo
+/hexz_doctor
 /models     Model routing TUI
 ```
 
@@ -272,9 +284,12 @@ bun run lint         # Biome lint
 
 ```bash
 ./uninstall.sh
+./uninstall.sh --mimo
 # Or manually:
 rm -rf .opencode/plugins/hexz
 rm -rf ~/.config/opencode/plugins/hexz
+rm -f .mimocode/tools/hexz.ts
+rm -f ~/.config/mimocode/tools/hexz.ts
 ```
 
 ---

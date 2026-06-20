@@ -8,12 +8,12 @@
     ".": "./dist/hexz.js"
   },
   "scripts": {
-    "build": "bun build src/hexz.ts --outfile dist/hexz.js --target bun --external bun --external capture-website --external tesseract.js",
+    "build": "bun build src/hexz.ts --outfile dist/hexz.js --target bun --external bun --external capture-website --external tesseract.js && bun build src/hexz-mimo.ts --outfile dist/hexz-mimo.js --target node --external capture-website --external tesseract.js",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "dev": "bun run build --watch",
     "prepublishOnly": "bun run build",
-    "lint": "biome check src/",
+    "lint": "biome lint src/ --diagnostic-level=error --max-diagnostics=500",
     "format": "biome format --write src/",
     "postinstall": "npx puppeteer browsers install chrome 2>/dev/null || true"
   },

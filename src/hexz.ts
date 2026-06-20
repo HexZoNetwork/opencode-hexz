@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 export const VERSION = "1.5.0";
 function fileExistsSync(p: string): boolean {
@@ -15,7 +15,7 @@ function writeFile(p: string, content: string): void {
 }
 function* globSync(pattern: string, cwd: string): Generator<string> {
   const parts = pattern.split("/");
-  const filePart = parts[parts.length - 1]!;
+  const filePart = parts[parts.length - 1] ?? "";
   const dirPart = parts.slice(0, -1).join("/");
   const baseDir = dirPart ? join(cwd, dirPart) : cwd;
   try {
@@ -34,9 +34,45 @@ function* globSync(pattern: string, cwd: string): Generator<string> {
 }
 
 const CRAFT_DEFAULT_SECTIONS = ["typography", "color", "anti-ai-slop"];
-const DESIGN_DIR = join(import.meta.dir!, "design");
-const CYBER_DIR = join(import.meta.dir!, "cybersecurity");
+const MODULE_DIR = import.meta.dir ?? process.cwd();
+const DESIGN_DIR = join(MODULE_DIR, "design");
+const CYBER_DIR = join(MODULE_DIR, "cybersecurity");
 const SIMS_DIR = ".sims";
+
+export function isInsidePath(baseDir: string, targetPath: string): boolean {
+  const rel = relative(resolve(baseDir), resolve(targetPath));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+export function resolveProjectPath(baseDir: string, input: string): string | null {
+  if (!input.trim() || input.includes("\0")) return null;
+  const targetPath = resolve(baseDir, input);
+  return isInsidePath(baseDir, targetPath) ? targetPath : null;
+}
+
+export function isSafeWebUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    if (["localhost", "0.0.0.0", "127.0.0.1", "::1"].includes(host)) return false;
+    if (host.endsWith(".local") || host.startsWith("127.")) return false;
+    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return false;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function scanCodebase(cwd: string): string {
   const files: string[] = [];
@@ -231,9 +267,6 @@ function getModelRoutes(): ModelRoute[] {
     const raw = getMemory("model_routes");
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
-}
-function setModelRoutes(routes: ModelRoute[]): void {
-  setMemory("model_routes", JSON.stringify(routes));
 }
 function isRoutingEnabled(): boolean {
   return getMemory("model_routing_enabled") === "true";
@@ -436,6 +469,7 @@ async function fileExists(path: string): Promise<boolean> {
 }
 async function detectProjectType(dir: string): Promise<string[]> {
   const types: string[] = [];
+  if (await fileExists(`${dir}/bun.lock`)) types.push("bun");
   if (await fileExists(`${dir}/package.json`)) types.push("node");
   if ((await fileExists(`${dir}/requirements.txt`)) || (await fileExists(`${dir}/pyproject.toml`)))
     types.push("python");
@@ -447,7 +481,20 @@ async function detectProjectType(dir: string): Promise<string[]> {
     types.push("java");
   return types;
 }
+
+async function hasCommand(name: string, $: any): Promise<boolean> {
+  try {
+    await $`command -v ${name}`.quiet();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function runSemgrepScan(target: string, $: any): Promise<string> {
+  if (!(await hasCommand("semgrep", $))) {
+    return "Semgrep not installed. Install semgrep to enable static OWASP/secrets analysis.";
+  }
   try {
     const result =
       await $`semgrep --config=p/owasp-top-ten --config=p/secrets --json --quiet ${target}`.text();
@@ -469,7 +516,25 @@ async function runSemgrepScan(target: string, $: any): Promise<string> {
     return `Semgrep failed: ${msg}`;
   }
 }
+async function runBunAudit(dir: string, $: any): Promise<string> {
+  if (!(await hasCommand("bun", $))) {
+    return "bun not installed. Skipping Bun dependency audit.";
+  }
+  try {
+    const result = await $`bun audit`.cwd(dir).text();
+    return result.trim() || "No bun vulnerabilities found.";
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "unknown error";
+    return `bun audit failed: ${msg}`;
+  }
+}
 async function runNpmAudit(dir: string, $: any): Promise<string> {
+  if (!(await hasCommand("npm", $))) {
+    return "npm not installed. Skipping npm dependency audit.";
+  }
+  if (!fileExistsSync(join(dir, "package-lock.json")) && !fileExistsSync(join(dir, "npm-shrinkwrap.json"))) {
+    return "npm lockfile not found. Skipping npm audit; use bun audit/yarn audit for this project.";
+  }
   try {
     const result = await $`npm audit --json`.cwd(dir).text();
     const parsed = JSON.parse(result);
@@ -495,6 +560,9 @@ async function runNpmAudit(dir: string, $: any): Promise<string> {
   }
 }
 async function runPipAudit(dir: string, $: any): Promise<string> {
+  if (!(await hasCommand("pip-audit", $))) {
+    return "pip-audit not installed. Skipping Python dependency audit.";
+  }
   try {
     const result = await $`pip-audit --format=json`.cwd(dir).text();
     const parsed = JSON.parse(result);
@@ -519,11 +587,15 @@ async function runDependencyScan(command: string, $: any): Promise<string> {
   if (
     command.includes("npm install") ||
     command.includes("npm i ") ||
-    command.includes("yarn add") ||
-    command.includes("bun add")
+    command.includes("yarn add")
   ) {
     lines.push("Running npm audit...");
     const result = await runNpmAudit(".", $);
+    lines.push(result);
+  }
+  if (command.includes("bun install") || command.includes("bun add")) {
+    lines.push("Running bun audit...");
+    const result = await runBunAudit(".", $);
     lines.push(result);
   }
   if (
@@ -543,6 +615,41 @@ async function runDependencyScan(command: string, $: any): Promise<string> {
   }
   return lines.length > 0 ? lines.join("\n") : "No dependency install detected.";
 }
+
+async function runDoctor(projectDir: string, $: any): Promise<string> {
+  const lines = [`[HEXZ Doctor] v${VERSION}`, `Project: ${projectDir}`, ""];
+  const projectTypes = await detectProjectType(projectDir);
+  lines.push(`Project types: ${projectTypes.length ? projectTypes.join(", ") : "unknown"}`);
+
+  const checks: Array<[string, string, string]> = [
+    ["bun", "required", "Install Bun from https://bun.sh"],
+    ["git", "recommended", "Install git for PR and marketplace workflows"],
+    ["npm", "optional", "Install Node/npm for npm audit fallback"],
+    ["gh", "optional", "Install GitHub CLI for hexz_pr create"],
+    ["semgrep", "optional", "Install semgrep for static OWASP analysis"],
+    ["pip-audit", "optional", "Install pip-audit for Python dependency scanning"],
+  ];
+
+  lines.push("\nTools:");
+  for (const [name, level, fix] of checks) {
+    const ok = await hasCommand(name, $);
+    lines.push(`- ${ok ? "OK" : "MISSING"} ${name} (${level})${ok ? "" : ` - ${fix}`}`);
+  }
+
+  const browser =
+    (await hasCommand("chromium", $)) ||
+    (await hasCommand("chromium-browser", $)) ||
+    (await hasCommand("google-chrome", $));
+  lines.push(`- ${browser ? "OK" : "MISSING"} chromium/chrome (optional)${browser ? "" : " - required for hexz_webss"}`);
+
+  lines.push("\nSecurity defaults:");
+  lines.push("- Project-bound file writes: enabled");
+  lines.push("- Local/private screenshot URLs: blocked");
+  lines.push("- Output/memory secret redaction: enabled");
+  lines.push("- Directory secret scanning: enabled");
+  return lines.join("\n");
+}
+
 async function scanForSecrets(target: string): Promise<string> {
   const secretPatterns = [
     { name: "API Key", regex: /(?:api[_-]?key|apikey)\s*[:=]\s*['"]([^'"]+)['"]/gi },
@@ -557,20 +664,70 @@ async function scanForSecrets(target: string): Promise<string> {
     { name: "GitHub Token", regex: /ghp_[a-zA-Z0-9]{36}/g },
     { name: "Slack Token", regex: /xox[baprs]-[a-zA-Z0-9-]+/g },
   ];
+  const ignoredDirs = new Set([".git", "node_modules", "dist", ".sims", "coverage"]);
+  const textExts = new Set([
+    ".env",
+    ".js",
+    ".json",
+    ".jsonc",
+    ".md",
+    ".py",
+    ".sh",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".yaml",
+    ".yml",
+  ]);
   const findings: string[] = [];
-  try {
-    const content = readFile(target);
-    if (content !== null) {
-      for (const pattern of secretPatterns) {
-        const matches = content.match(pattern.regex);
-        if (matches) {
-          findings.push(`Found ${pattern.name} pattern in ${target}`);
-        }
+
+  function shouldScanFile(path: string): boolean {
+    const name = path.split(/[\\/]/).pop() ?? "";
+    if (name.startsWith(".env")) return true;
+    const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
+    return textExts.has(ext);
+  }
+
+  function scanFile(path: string): void {
+    const content = readFile(path);
+    if (content === null) return;
+    for (const pattern of secretPatterns) {
+      pattern.regex.lastIndex = 0;
+      const matches = content.match(pattern.regex);
+      if (matches) {
+        findings.push(`Found ${pattern.name} pattern in ${path}`);
       }
     }
-  } catch {
-  
   }
+
+  function walk(dir: string, depth: number): void {
+    if (depth > 8 || findings.length >= 50) return;
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (ignoredDirs.has(entry)) continue;
+      const fullPath = join(dir, entry);
+      try {
+        const st = statSync(fullPath);
+        if (st.isDirectory()) walk(fullPath, depth + 1);
+        else if (st.isFile() && st.size <= 1024 * 1024 && shouldScanFile(fullPath)) scanFile(fullPath);
+      } catch {}
+      if (findings.length >= 50) return;
+    }
+  }
+
+  try {
+    const st = statSync(target);
+    if (st.isDirectory()) walk(target, 0);
+    else if (st.isFile()) scanFile(target);
+  } catch {
+    return `Secret scan failed: target not readable (${target})`;
+  }
+  if (findings.length >= 50) findings.push("... truncated after 50 findings.");
   return findings.length > 0 ? findings.join("\n") : "No secret patterns detected.";
 }
 function generateDesignScaffoldHTML(designSpec: string): string {
@@ -607,27 +764,27 @@ function generateDesignScaffoldHTML(designSpec: string): string {
 </html>`;
 }
 
-function redactSecrets(text: string): string {
+export function redactSecrets(text: string): string {
   const redactionPatterns = [
     {
       name: "API Key",
-      regex: /(?:api[_-]?key|apikey)\s*[:=]\s*['"]([^'"]+)['"]/gi,
-      replacement: "$1=REDACTED",
+      regex: /((?:api[_-]?key|apikey)\s*[:=]\s*['"])[^'"]+(['"])/gi,
+      replacement: "$1REDACTED$2",
     },
     {
       name: "Secret Key",
-      regex: /(?:secret[_-]?key|secretkey)\s*[:=]\s*['"]([^'"]+)['"]/gi,
-      replacement: "$1=REDACTED",
+      regex: /((?:secret[_-]?key|secretkey)\s*[:=]\s*['"])[^'"]+(['"])/gi,
+      replacement: "$1REDACTED$2",
     },
     {
       name: "Password",
-      regex: /(?:password|passwd|pwd)\s*[:=]\s*['"]([^'"]+)['"]/gi,
-      replacement: "$1=REDACTED",
+      regex: /((?:password|passwd|pwd)\s*[:=]\s*['"])[^'"]+(['"])/gi,
+      replacement: "$1REDACTED$2",
     },
     {
       name: "Token",
-      regex: /(?:token|access[_-]?token|auth[_-]?token)\s*[:=]\s*['"]([^'"]+)['"]/gi,
-      replacement: "$1=REDACTED",
+      regex: /((?:token|access[_-]?token|auth[_-]?token)\s*[:=]\s*['"])[^'"]+(['"])/gi,
+      replacement: "$1REDACTED$2",
     },
     { name: "AWS Key", regex: /AKIA[0-9A-Z]{16}/g, replacement: "AKIA_REDACTED" },
     {
@@ -672,6 +829,7 @@ hexz_webss — Web screenshot via Puppeteer (capture-website). Capture site visu
 hexz_mcp   — MCP server management. Connect to external servers for DB/FS/API.
 hexz_memory — Persistent memory across sessions. Store project context & preferences.
 hexz_pr    — Git PR workflow. Status, diff, create pull requests with gh CLI.
+hexz_doctor — Check runtime, scanner, browser, git, and safety readiness.
 
 COMMANDS:
 /route — Show model routing status
@@ -1045,6 +1203,8 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
           "Persistent agent memory across sessions. Get/set/list/clear stored project context, preferences, and summaries.",
         hexz_pr:
           "Git PR workflow. Check status, diff, and create pull requests with AI descriptions. Requires git + gh CLI.",
+        hexz_doctor:
+          "Health check for HEXZ runtime, optional scanners, browser tooling, git/GitHub CLI, and safety defaults.",
       };
       if (!desc[input.toolID]) return;
       output.description = state.active ? desc[input.toolID] : "[HEXZ OFF] Activate with /active first.";
@@ -1058,7 +1218,7 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
       const message = `HEXZ active for ${minutes}m${seconds}s. ${state.searches} searches. ${diagCount} errors.`;
       await sendNotification("HEXZ Status", message);
     
-      const prevSearches = parseInt(getMemory("total_searches") ?? "0", 10);
+      const prevSearches = Number.parseInt(getMemory("total_searches") ?? "0", 10);
       setMemory("total_searches", String(prevSearches + state.searches));
       setMemory("last_session_summary", `${minutes}m session, ${state.searches} searches, ${diagCount} LSP errors`);
     },
@@ -1103,7 +1263,7 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
       }
     },
     "session.created": async (input: any, _output: any) => {
-      const sessions = parseInt(getMemory("sessions") ?? "0", 10);
+      const sessions = Number.parseInt(getMemory("sessions") ?? "0", 10);
       setMemory("sessions", String(sessions + 1));
       const dir = input.directory ?? ".";
       const projectTypes = await detectProjectType(dir);
@@ -1147,15 +1307,17 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         async execute(args, _ctx) {
           if (!state.active) return "HEXZ not active. Type /active first.";
           if (!isSafeInput(args.target)) return "Invalid target path.";
+          const targetPath = resolveProjectPath(projectDir, args.target);
+          if (!targetPath) return "Target path must stay inside the project directory.";
           const m = args.mode ?? "full";
           const lines: string[] = [`[HEXZ Scan] ${args.target} (${m})\n`];
-        
-          const projectTypes = await detectProjectType(args.target);
-        
+
+          const projectTypes = await detectProjectType(targetPath);
+
           if (m === "full" || m === "quick") {
-          
+
             try {
-              const semgrepResult = await runSemgrepScan(args.target, $);
+              const semgrepResult = await runSemgrepScan(targetPath, $);
               lines.push("STATIC ANALYSIS:");
               lines.push(semgrepResult);
             } catch {
@@ -1165,12 +1327,15 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
           if (m === "full" || m === "deps") {
           
             lines.push("\nDEPENDENCY SCANNING:");
-            if (projectTypes.includes("node")) {
-              const npmResult = await runNpmAudit(args.target, $);
+            if (projectTypes.includes("bun")) {
+              const bunResult = await runBunAudit(targetPath, $);
+              lines.push(`bun: ${bunResult}`);
+            } else if (projectTypes.includes("node")) {
+              const npmResult = await runNpmAudit(targetPath, $);
               lines.push(`npm: ${npmResult}`);
             }
             if (projectTypes.includes("python")) {
-              const pipResult = await runPipAudit(args.target, $);
+              const pipResult = await runPipAudit(targetPath, $);
               lines.push(`pip: ${pipResult}`);
             }
             if (!projectTypes.length) {
@@ -1180,7 +1345,7 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         
           if (m === "full") {
             lines.push("\nSECRET SCANNING:");
-            const secretResult = await scanForSecrets(args.target);
+            const secretResult = await scanForSecrets(targetPath);
             lines.push(secretResult);
           }
         
@@ -1248,18 +1413,19 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
             lines.push("");
           }
           lines.push("══ Generated Scaffold ══");
+          const safeBrief = escapeHtml(args.brief);
           const scaffoldBody = `<header>
   <div class="container">
     <nav>
       <span class="badge">HEXZ</span>
-      <h1>${args.brief}</h1>
+      <h1>${safeBrief}</h1>
     </nav>
   </div>
 </header>
 <main>
   <section class="hero">
     <div class="container">
-      <h1>${args.brief}</h1>
+      <h1>${safeBrief}</h1>
       <p>Your project description goes here. Replace this with your actual content.</p>
       <button class="btn">Get Started</button>
     </div>
@@ -1277,7 +1443,9 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
 </main>`;
           const html = generateDesignScaffoldHTML(scaffoldBody);
           if (args.save) {
-            const outPath = join(ctx.directory, args.save);
+            const outPath = resolveProjectPath(ctx.directory, args.save);
+            if (!outPath) return "Save path must stay inside the project directory.";
+            try { mkdirSync(resolve(outPath, ".."), { recursive: true }); } catch {}
             writeFile(outPath, html);
             lines.push(`\nSaved to ${args.save}`);
           } else {
@@ -1296,7 +1464,8 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         async execute(args: any, _ctx: any) {
           if (!state.active) return "HEXZ not active. Type /active first.";
           if (!isSafeInput(args.image_path)) return "Invalid image path.";
-          const imagePath = args.image_path.startsWith("/") ? args.image_path : join(projectDir, args.image_path);
+          const imagePath = resolveProjectPath(projectDir, args.image_path);
+          if (!imagePath) return "Image path must stay inside the project directory.";
           if (!fileExistsSync(imagePath)) return `[HEXZ Image] File not found: ${imagePath}`;
           const intent = args.intent ?? "auto";
           try {
@@ -1334,24 +1503,27 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         },
         async execute(args: any, _ctx: any) {
           if (!state.active) return "HEXZ not active. Type /active first.";
+          const safeUrl = args.url.trim();
+          if (!isSafeWebUrl(safeUrl)) return "URL must be public http(s), not localhost or a private network address.";
           try {
             const mod = await import("capture-website");
             const cw = (mod as any).default || mod;
             const opts: Record<string, unknown> = {};
-            if (args.width) opts["width"] = args.width;
-            if (args.height) opts["height"] = args.height;
-            if (args.fullPage) opts["fullPage"] = true;
+            if (args.width) opts["width"] = Number(args.width);
+            if (args.height) opts["height"] = Number(args.height);
+            if (args.fullPage) opts["fullPage"] = args.fullPage === true || args.fullPage === "true";
             if (args.type) opts["type"] = args.type;
-            if (args.quality) opts["quality"] = args.quality;
-            if (args.emulateDevice) opts["emulateDevice"] = args.emulateDevice;
+            if (args.quality) opts["quality"] = Number(args.quality);
+            if (args.emulateDevice && args.emulateDevice !== "none" && args.emulateDevice !== "") opts["emulateDevice"] = args.emulateDevice;
             if (args.css) opts["css"] = args.css;
             if (args.inputType) opts["inputType"] = args.inputType;
             if (args.output) {
-              const outPath = join(projectDir, args.output);
-              await cw.file(args.url, outPath, opts);
+              const outPath = resolveProjectPath(projectDir, args.output);
+              if (!outPath) return "Output path must stay inside the project directory.";
+              await cw.file(safeUrl, outPath, opts);
               return `[HEXZ WebSS] Screenshot saved to ${args.output}`;
             }
-            const b64: string = await cw.base64(args.url, opts);
+            const b64: string = await cw.base64(safeUrl, opts);
             return `[HEXZ WebSS] Screenshot captured (base64, ${Math.floor(b64.length / 1024)} KB). Pass output=path to save to file.`;
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : "unknown error";
@@ -1410,8 +1582,9 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
           }
           if (a === "set") {
             if (!args.key || args.value === undefined) return "Usage: hexz_memory action=set key=<name> value=<text>";
-            setMemory(args.key, args.value);
-            return `[HEXZ Memory] Set ${args.key} = ${args.value.slice(0, 100)}${args.value.length > 100 ? "..." : ""}`;
+            const safeValue = redactSecrets(args.value);
+            setMemory(args.key, safeValue);
+            return `[HEXZ Memory] Set ${args.key} = ${safeValue.slice(0, 100)}${safeValue.length > 100 ? "..." : ""}`;
           }
           if (a === "list") {
             const keys = ["active", "total_searches", "sessions", "project_context", "last_error", "last_session_summary"];
@@ -1510,6 +1683,14 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         async execute() {
           const up = Math.floor((Date.now() - state.startTime) / 1000);
           return `HEXZ: ${state.active ? "ON" : "OFF"} | v${VERSION} | ${Math.floor(up / 60)}m${up % 60}s | ${state.searches} searches | cache: ${searchCache.size} entries`;
+        },
+      }),
+      hexz_doctor: tool({
+        description: "Check HEXZ runtime, scanner, browser, git, and safety readiness.",
+        args: {},
+        async execute() {
+          if (!state.active) return "HEXZ not active. Type /active first.";
+          return runDoctor(projectDir, $);
         },
       }),
       hexz_sim: tool({

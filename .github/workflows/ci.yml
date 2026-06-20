@@ -20,6 +20,12 @@ jobs:
 
       - run: bun run typecheck
 
+      - run: bash -n install.sh
+
+      - run: bash -n uninstall.sh
+
+      - run: bun audit
+
       - run: bun run lint
 
       - run: bun run build

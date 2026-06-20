@@ -1,17 +1,21 @@
 # Codebase Map
 
-Generated: 2026-06-17T11:17:50.912Z
+Generated: 2026-06-20T18:12:49.332Z
 
-Total source files: 1168
+Total source files: 1171
 
 ---
+
+## dist/hexz-mimo.js
+- Lines: 904
+- Imports: `import { createRequire } from "node:module";`, `import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";`, `import { homedir } from "node:os";`, `import { isAbsolute, join, relative, resolve } from "node:path";`, `import { spawnSync } from "node:child_process";`
 
 ## dist/hexz-wrapper.js
 - Lines: 7
 
 ## dist/hexz.js
-- Lines: 285586
-- Imports: `import { createRequire } from "node:module";`, `import path from "path";`, `import { createWriteStream } from "fs";`, `import * as http from "http";`, `import * as https from "https";`
+- Lines: 14284
+- Imports: `import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";`, `import { isAbsolute, join, relative, resolve } from "path";`, `import { homedir } from "os";`
 
 ## src/cybersecurity/skills-mukul/acquiring-disk-image-with-dd-and-dcfldd/scripts/agent.py
 - Lines: 182
@@ -3484,10 +3488,18 @@ Total source files: 1168
 ## src/design/design-templates/wireframe-sketch/example.html
 - Lines: 257
 
-## src/hexz.ts
-- Lines: 1644
-- Imports: `import type { Plugin } from "@opencode-ai/plugin";`, `import { tool } from "@opencode-ai/plugin";`, `import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";`, `import { join } from "node:path";`, `import { homedir } from "node:os";`
+## src/hexz-mimo.ts
+- Lines: 762
+- Imports: `import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"`, `import { homedir } from "node:os"`, `import { isAbsolute, join, relative, resolve } from "node:path"`, `import { spawnSync } from "node:child_process"`
 - Exports: `export const`, `export const`, `export const`
+
+## src/hexz.ts
+- Lines: 1825
+- Imports: `import type { Plugin } from "@opencode-ai/plugin";`, `import { tool } from "@opencode-ai/plugin";`, `import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";`, `import { isAbsolute, join, relative, resolve } from "node:path";`, `import { homedir } from "node:os";`
+- Exports: `export const`, `export function`, `export function`
+
+## test-design.html
+- Lines: 56
 
 ## test/dist/assets/index-D_nF9BJn.js
 - Lines: 37
@@ -3512,5 +3524,5 @@ Total source files: 1168
 - Imports: `import { defineConfig } from "vite";`
 
 ## tests/hexz.test.ts
-- Lines: 18
+- Lines: 52
 - Imports: `import { describe, expect, it } from "bun:test"`

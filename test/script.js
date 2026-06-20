@@ -301,5 +301,3 @@ document.addEventListener("DOMContentLoaded", () => {
   runTerminalDemo();
 });
 
-// Route section navigable via #models hash
-// The /route command is registered via the server plugin

@@ -9,8 +9,8 @@ coverage
 *.lcov
 
 logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 .env
 .env.development.local
@@ -28,3 +28,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .idea
 
 .DS_Store
+test-design.html
+test-ss.png
+*.traineddata
+false

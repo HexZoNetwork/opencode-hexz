@@ -26,6 +26,7 @@ ${BOLD}Options:${RESET}
   -g, --global     Install to ~/.config/opencode/ only
   -p, --project    Install to ./.opencode/ only (default)
   -b, --both       Install globally and locally
+  -mm, --mimo      Install for MiMo Code (.mimocode / ~/.config/mimocode)
   -y, --yes        Accept all defaults, no prompts
   -h, --help       Show this help
   -v, --version    Show plugin version
@@ -33,6 +34,7 @@ ${BOLD}Options:${RESET}
 ${BOLD}Examples:${RESET}
   ./install.sh
   ./install.sh -g
+  ./install.sh --mimo -g
   ./install.sh /my/project -y
   ./install.sh -b
 EOF
@@ -41,12 +43,14 @@ EOF
 MODE=""
 AUTO_YES=false
 DEST=""
+RUNTIME="opencode"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -g|--global)   MODE="global";  shift ;;
     -p|--project)  MODE="project"; shift ;;
     -b|--both)     MODE="both";    shift ;;
+    -mm|--mimo)    RUNTIME="mimo"; shift ;;
     -y|--yes)      AUTO_YES=true;  shift ;;
     -h|--help)     usage; exit 0 ;;
     -v|--version)  grep '"version"' "$SCRIPT_DIR/package.json" | head -1; exit 0 ;;
@@ -58,7 +62,11 @@ DEST="${DEST:-.}"
 
 echo ""
 echo -e "${CYAN}${BOLD}  ╔═════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}  ║     HEXZ — OpenCode     ║${RESET}"
+if [ "$RUNTIME" = "mimo" ]; then
+  echo -e "${CYAN}${BOLD}  ║    HEXZ — MiMo Code     ║${RESET}"
+else
+  echo -e "${CYAN}${BOLD}  ║     HEXZ — OpenCode     ║${RESET}"
+fi
 echo -e "${CYAN}${BOLD}  ╚═════════════════════════╝${RESET}"
 echo ""
 
@@ -180,6 +188,7 @@ fi
 install_to() {
   local dest="$1"
   local label="$2"
+  local runtime="${3:-opencode}"
   local plugdir="$dest/plugins"
   local hexzdir="$plugdir/hexz"
 
@@ -196,11 +205,49 @@ install_to() {
 
   cat > "$hexzdir/package.json" << 'EOF'
 {
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "capture-website": "^4.0.0",
+    "tesseract.js": "^5.1.0"
+  }
 }
 EOF
 
-  cat > "$plugdir/package.json" << 'EOF'
+  (
+    cd "$hexzdir" && npm install --no-save 2>/dev/null
+  ) && echo -e "${GREEN}✓${RESET} Installed optional deps (capture-website, tesseract.js)" || echo -e "${YELLOW}⚠ npm install failed — hexz_webss/hexz_image may be unavailable${RESET}"
+
+  if [ "$runtime" = "mimo" ]; then
+    cat > "$plugdir/package.json" << 'EOF'
+{
+  "name": "mimocode-hexz",
+  "version": "1.5.0",
+  "description": "HEXZ — MiMo Code Upgrade Layer",
+  "type": "module",
+  "main": "index.ts"
+}
+EOF
+
+    cat > "$plugdir/index.ts" << 'EOF'
+let initialized = false;
+let hooks: any = null;
+
+const init = async (input: any) => {
+  if (initialized) return hooks || {};
+  initialized = true;
+  const mod = await import("./hexz/index.js");
+  const fn = mod.default || mod.HexzPlugin || mod;
+  if (typeof fn === "function") hooks = (await fn(input)) || {};
+  else hooks = {};
+  return hooks;
+};
+
+const HexzPlugin: any = (input: any) => init(input);
+export default HexzPlugin;
+export const server = HexzPlugin;
+EOF
+  else
+    cat > "$plugdir/package.json" << 'EOF'
 {
   "name": "opencode-hexz",
   "version": "1.5.0",
@@ -213,7 +260,7 @@ EOF
 }
 EOF
 
-  cat > "$plugdir/index.ts" << 'EOF'
+    cat > "$plugdir/index.ts" << 'EOF'
 let initialized = false;
 let hooks: any = null;
 
@@ -231,6 +278,7 @@ const HexzPlugin: any = (input: any) => init(input);
 export default HexzPlugin;
 export const server = HexzPlugin;
 EOF
+  fi
 
   cat > "$dest/commands/active.md" << 'EOF'
 ---
@@ -264,21 +312,93 @@ EOF
   echo -e "    commands/off.md            → ${dest}/commands/off.md"
 }
 
+install_mimo_to() {
+  local dest="$1"
+  local label="$2"
+  local toolsdir="$dest/tools"
+
+  mkdir -p "$toolsdir" "$dest/commands"
+
+  cp "$SCRIPT_DIR/dist/hexz-mimo.js" "$toolsdir/hexz.js"
+
+  if [ -d "$SCRIPT_DIR/src/cybersecurity" ]; then
+    cp -r "$SCRIPT_DIR/src/cybersecurity" "$dest/cybersecurity"
+  fi
+
+  cat > "$toolsdir/package.json" << 'EOF'
+{
+  "type": "module",
+  "dependencies": {
+    "capture-website": "^4.0.0",
+    "tesseract.js": "^5.1.0"
+  }
+}
+EOF
+
+  (
+    cd "$toolsdir" && npm install --no-save 2>/dev/null
+  ) && echo -e "${GREEN}✓${RESET} Installed optional deps (capture-website, tesseract.js)" || echo -e "${YELLOW}⚠ npm install failed — hexz_webss/hexz_image will be unavailable${RESET}"
+
+  cat > "$dest/commands/active.md" << 'EOF'
+---
+description: Engage HEXZ guidance in MiMo Code
+---
+HEXZ_ACTIVATE
+EOF
+
+  cat > "$dest/commands/off.md" << 'EOF'
+---
+description: Revert to default MiMo Code behavior
+---
+HEXZ_DEACTIVATE
+EOF
+
+  cat > "$dest/commands/models.md" << 'EOF'
+---
+description: Configure or review model routing preferences
+---
+HEXZ_MODELS
+EOF
+
+  echo -e "${GREEN}✓${RESET} ${label}"
+  echo -e "    tools/hexz.js              → ${toolsdir}/hexz.js"
+  echo -e "    tools/package.json         → ${toolsdir}/package.json"
+  echo -e "    cybersecurity/             → ${dest}/cybersecurity/"
+  echo -e "    commands/active.md         → ${dest}/commands/active.md"
+  echo -e "    commands/off.md            → ${dest}/commands/off.md"
+}
+
 echo -e "${BOLD}Installing:${RESET}"
 
-case "$MODE" in
-  project)
-    install_to "$(realpath "$DEST")/.opencode" "Project-level"
-    ;;
-  global)
-    install_to "$HOME/.config/opencode" "Global"
-    ;;
-  both)
-    install_to "$HOME/.config/opencode" "Global"
-    echo ""
-    install_to "$(realpath "$DEST")/.opencode" "Project-level"
-    ;;
-esac
+if [ "$RUNTIME" = "mimo" ]; then
+  case "$MODE" in
+    project)
+      install_mimo_to "$(realpath "$DEST")/.mimocode" "Project-level (MiMo Code)"
+      ;;
+    global)
+      install_mimo_to "$HOME/.config/mimocode" "Global (MiMo Code)"
+      ;;
+    both)
+      install_mimo_to "$HOME/.config/mimocode" "Global (MiMo Code)"
+      echo ""
+      install_mimo_to "$(realpath "$DEST")/.mimocode" "Project-level (MiMo Code)"
+      ;;
+  esac
+else
+  case "$MODE" in
+    project)
+      install_to "$(realpath "$DEST")/.opencode" "Project-level"
+      ;;
+    global)
+      install_to "$HOME/.config/opencode" "Global"
+      ;;
+    both)
+      install_to "$HOME/.config/opencode" "Global"
+      echo ""
+      install_to "$(realpath "$DEST")/.opencode" "Project-level"
+      ;;
+  esac
+fi
 
 find_opencode_config() {
   local dir="$1"
@@ -303,11 +423,12 @@ plugin_config_path() {
 add_plugin_to_config() {
   local config_file="$1"
   local plugin_path="$2"
+  local schema="${3:-https://opencode.ai/config.json}"
 
   if [ ! -f "$config_file" ]; then
     cat > "$config_file" << EOF
 {
-  "\$schema": "https://opencode.ai/config.json",
+  "\$schema": "$schema",
   "plugin": ["$plugin_path"]
 }
 EOF
@@ -336,6 +457,26 @@ EOF
   echo -e "${GREEN}✓${RESET} Added hexz to $(basename "$config_file")"
 }
 
+find_mimo_config() {
+  local dir="$1"
+  for f in "$dir/mimocode.json" "$dir/mimocode.jsonc"; do
+    if [ -f "$f" ]; then
+      echo "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+mimo_plugin_config_path() {
+  local dest="$1"
+  if [ "$(realpath "$dest")" = "$(realpath "$HOME/.config/mimocode")" ]; then
+    echo "$HOME/.config/mimocode/plugins"
+  else
+    echo "./.mimocode/plugins"
+  fi
+}
+
 verify_opencode_config() {
   local dir="$1"
   local plugin_path
@@ -355,39 +496,92 @@ EOF
   fi
 }
 
+verify_mimo_config() {
+  local dir="$1"
+  local config_file
+
+  mkdir -p "$dir"
+  if config_file=$(find_mimo_config "$dir"); then
+    echo -e "${GREEN}✓${RESET} $(basename "$config_file") already present"
+  else
+    cat > "$dir/mimocode.json" << EOF
+{
+  "\$schema": "https://mimo.xiaomi.com/config.json"
+}
+EOF
+    echo -e "${GREEN}✓${RESET} Created mimocode.json"
+  fi
+}
+
 echo ""
 echo -e "${BOLD}Verifying config:${RESET}"
-case "$MODE" in
-  project)
-    verify_opencode_config "$(realpath "$DEST")"
-    ;;
-  global)
-    verify_opencode_config "$HOME/.config/opencode"
-    ;;
-  both)
-    verify_opencode_config "$(realpath "$DEST")"
-    verify_opencode_config "$HOME/.config/opencode"
-    ;;
-esac
+if [ "$RUNTIME" = "mimo" ]; then
+  case "$MODE" in
+    project)
+      verify_mimo_config "$(realpath "$DEST")"
+      ;;
+    global)
+      verify_mimo_config "$HOME/.config/mimocode"
+      ;;
+    both)
+      verify_mimo_config "$(realpath "$DEST")"
+      verify_mimo_config "$HOME/.config/mimocode"
+      ;;
+  esac
+else
+  case "$MODE" in
+    project)
+      verify_opencode_config "$(realpath "$DEST")"
+      ;;
+    global)
+      verify_opencode_config "$HOME/.config/opencode"
+      ;;
+    both)
+      verify_opencode_config "$(realpath "$DEST")"
+      verify_opencode_config "$HOME/.config/opencode"
+      ;;
+  esac
+fi
 
 echo ""
 echo -e "${GREEN}${BOLD}  HEXZ installed successfully!${RESET}"
 echo ""
 echo -e "  ${BOLD}Next steps:${RESET}"
-echo -e "    1. Restart opencode (if running)"
+if [ "$RUNTIME" = "mimo" ]; then
+  echo -e "    1. Restart mimo / MiMo Code (if running)"
+else
+  echo -e "    1. Restart opencode (if running)"
+fi
 echo -e "    2. Type ${CYAN}/active${RESET} to engage HEXZ"
 echo -e "    3. Type ${CYAN}/off${RESET} to revert"
 echo ""
 echo -e "  ${BOLD}Tools:${RESET}"
-echo -e "    ${CYAN}hexz_search${RESET}    Search the web"
-echo -e "    ${CYAN}hexz_scan${RESET}      Security audit"
-echo -e "    ${CYAN}hexz_design${RESET}    Design scaffolds"
-echo -e "    ${CYAN}hexz_image${RESET}     Image analysis (OCR)"
-echo -e "    ${CYAN}hexz_webss${RESET}     Web screenshots (Puppeteer)"
-echo -e "    ${CYAN}hexz_mcp${RESET}       MCP server management"
-echo -e "    ${CYAN}hexz_memory${RESET}    Persistent agent memory"
-echo -e "    ${CYAN}hexz_pr${RESET}        Git PR workflow"
-echo -e "    ${CYAN}hexz_mkp${RESET}       Plugin marketplace"
+if [ "$RUNTIME" = "mimo" ]; then
+  echo -e "    ${CYAN}hexz_search${RESET}    Search the web"
+  echo -e "    ${CYAN}hexz_scan${RESET}      Security audit (deps + secrets)"
+  echo -e "    ${CYAN}hexz_design${RESET}    Design scaffolds"
+  echo -e "    ${CYAN}hexz_image${RESET}     Image analysis (OCR)"
+  echo -e "    ${CYAN}hexz_webss${RESET}     Web screenshots (Puppeteer)"
+  echo -e "    ${CYAN}hexz_mcp${RESET}       MCP server management"
+  echo -e "    ${CYAN}hexz_memory${RESET}    Persistent agent memory"
+  echo -e "    ${CYAN}hexz_pr${RESET}        Git PR workflow"
+  echo -e "    ${CYAN}hexz_mkp${RESET}       Plugin marketplace"
+  echo -e "    ${CYAN}hexz_status${RESET}    Adapter status"
+  echo -e "    ${CYAN}hexz_doctor${RESET}    Runtime/tool readiness"
+  echo -e "    ${CYAN}hexz_sim${RESET}       Simulation sandbox"
+  echo -e "    ${CYAN}hexz_codebase${RESET}  Codebase map generator"
+  echo -e "    ${CYAN}hexz_cyber${RESET}     Cybersecurity skills"
+else
+  echo -e "    ${CYAN}hexz_search${RESET}    Search the web"
+  echo -e "    ${CYAN}hexz_scan${RESET}      Security audit"
+  echo -e "    ${CYAN}hexz_design${RESET}    Design scaffolds"
+  echo -e "    ${CYAN}hexz_image${RESET}     Image analysis (OCR)"
+  echo -e "    ${CYAN}hexz_webss${RESET}     Web screenshots (Puppeteer)"
+  echo -e "    ${CYAN}hexz_mcp${RESET}       MCP server management"
+  echo -e "    ${CYAN}hexz_memory${RESET}    Persistent agent memory"
+  echo -e "    ${CYAN}hexz_pr${RESET}        Git PR workflow"
+  echo -e "    ${CYAN}hexz_mkp${RESET}       Plugin marketplace"
+fi
 echo ""
 echo -e "  https://github.com/hexzonetwork/opencode-hexz"
 echo ""
