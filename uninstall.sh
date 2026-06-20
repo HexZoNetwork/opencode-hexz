@@ -3,14 +3,57 @@ set -euo pipefail
 
 if [ -t 1 ]; then
   BOLD="\033[1m"
+  DIM="\033[2m"
   GREEN="\033[0;32m"
   CYAN="\033[0;36m"
   YELLOW="\033[0;33m"
   RED="\033[0;31m"
   RESET="\033[0m"
+  HAS_TTY=true
 else
-  BOLD="" GREEN="" CYAN="" YELLOW="" RED="" RESET=""
+  BOLD="" DIM="" GREEN="" CYAN="" YELLOW="" RED="" RESET=""
+  HAS_TTY=false
 fi
+
+ok() { echo -e "  ${GREEN}✓${RESET} $1"; }
+warn() { echo -e "  ${YELLOW}!${RESET} $1"; }
+fail() { echo -e "  ${RED}✗${RESET} $1"; }
+
+section() {
+  echo ""
+  echo -e "  ${BOLD}${RED}── $1 ──${RESET}"
+  echo ""
+}
+
+banner() {
+  local runtime="$1"
+  local sub
+  if [ "$runtime" = "mimo" ]; then sub="MiMo Code"; else sub="OpenCode"; fi
+
+  echo ""
+  if [ "$HAS_TTY" = true ]; then
+    local logo=(
+      '  ██╗  ██╗███████╗██╗  ██╗███████╗'
+      '  ██║  ██║██╔════╝╚██╗██╔╝╚══███╔╝'
+      '  ███████║█████╗   ╚███╔╝   ███╔╝ '
+      '  ██╔══██║██╔══╝   ██╔██╗  ███╔╝  '
+      '  ██║  ██║███████╗██╔╝ ██╗███████╗'
+      '  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝'
+    )
+    for line in "${logo[@]}"; do
+      printf "  "
+      for ((i=0;i<${#line};i++)); do
+        printf "${RED}%s${RESET}" "${line:$i:1}"
+        sleep 0.005
+      done
+      echo ""
+    done
+    echo -e "  ${DIM}── Uninstall ${sub} ──${RESET}"
+  else
+    echo "  HEXZ Uninstall — $sub"
+  fi
+  echo ""
+}
 
 usage() {
   cat <<EOF
@@ -39,335 +82,191 @@ while [ $# -gt 0 ]; do
     -p|--project)  TARGET="project"; shift ;;
     -mm|--mimo)    RUNTIME="mimo"; shift ;;
     -h|--help)     usage; exit 0 ;;
-    *)             echo "${RED}Unknown: $1${RESET}"; usage; exit 1 ;;
+    *)             fail "Unknown: $1"; usage; exit 1 ;;
   esac
 done
 
-echo ""
-if [ "$RUNTIME" = "mimo" ]; then
-  echo -e "${CYAN}${BOLD}  HEXZ MiMo Code Uninstall${RESET}"
-else
-  echo -e "${CYAN}${BOLD}  HEXZ Uninstall${RESET}"
-fi
-echo ""
+banner "$RUNTIME"
 
 removed=0
 
-plugin_config_path() {
-  local dir="$1"
-  if [ "$(realpath "$dir" 2>/dev/null)" = "$(realpath "$HOME/.config/opencode" 2>/dev/null)" ]; then
-    echo "~/.config/opencode/plugins"
-  else
-    echo "./.opencode/plugins"
-  fi
-}
-
-find_opencode_config() {
-  local dir="$1"
-  for f in "$dir/opencode.json" "$dir/opencode.jsonc"; do
-    if [ -f "$f" ]; then
-      echo "$f"
-      return 0
-    fi
-  done
-  return 1
-}
-
-mimo_plugin_config_path() {
-  local dir="$1"
-  if [ "$(realpath "$dir" 2>/dev/null)" = "$(realpath "$HOME/.config/mimocode" 2>/dev/null)" ]; then
-    echo "$HOME/.config/mimocode/plugins"
-  else
-    echo "./.mimocode/plugins"
-  fi
-}
-
-find_mimo_config() {
-  local dir="$1"
-  for f in "$dir/mimocode.json" "$dir/mimocode.jsonc"; do
-    if [ -f "$f" ]; then
-      echo "$f"
-      return 0
-    fi
-  done
-  return 1
-}
-
 remove_plugin_from_config() {
   local dir="$1"
-  local config_file
-  local plugin_path
+  local pp
+  if [ "$(realpath "$dir" 2>/dev/null)" = "$(realpath "$HOME/.config/opencode" 2>/dev/null)" ]; then pp="~/.config/opencode/plugins"; else pp="./.opencode/plugins"; fi
 
-  plugin_path=$(plugin_config_path "$dir")
-
-  if ! config_file=$(find_opencode_config "$dir"); then
-    return 0
-  fi
+  local cf
+  for f in "$dir/opencode.json" "$dir/opencode.jsonc"; do
+    [ -f "$f" ] && cf="$f" && break
+  done
+  [ -z "${cf:-}" ] && return 0
 
   if ! command -v bun &>/dev/null; then
-    echo -e "${YELLOW}⚠ bun not found, skipping config cleanup${RESET}"
+    warn "bun not found, skipping config cleanup"
     return 0
   fi
 
   local result
-  result=$(CONFIG_FILE="$config_file" PLUGIN_PATH="$plugin_path" bun -e '
-    const fs = require("fs");
-    const configFile = process.env.CONFIG_FILE;
-    const pluginPath = process.env.PLUGIN_PATH;
-    if (!configFile || !pluginPath) process.exit(0);
-    const raw = fs.readFileSync(configFile, "utf8");
-    let config;
-    try { config = JSON.parse(raw); } catch {
-      const clean = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-      try { config = JSON.parse(clean); } catch { process.exit(0); }
-    }
-    if (!config.plugin || !Array.isArray(config.plugin)) process.exit(0);
-    const matchPatterns = [/hexz/, /opencode-hexz/];
-    const before = config.plugin.length;
-    config.plugin = config.plugin.filter(p => {
-      if (typeof p !== "string") return true;
-      if (p === pluginPath) return false;
-      return !matchPatterns.some(re => re.test(p));
-    });
-    if (config.plugin.length === before) process.exit(0);
-    if (config.plugin.length === 0) delete config.plugin;
-    fs.writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
+  result=$(CONFIG_FILE="$cf" PLUGIN_PATH="$pp" bun -e '
+    const fs=require("fs"),c=process.env.CONFIG_FILE,p=process.env.PLUGIN_PATH;
+    if(!c||p)return 0;
+    const r=fs.readFileSync(c,"utf8");
+    let j;try{j=JSON.parse(r)}catch{x=r.replace(/\/\/.*$/gm,"").replace(/\/\*[\s\S]*?\*\//g,"");try{j=JSON.parse(x)}catch{process.exit(0)}}
+    if(!j.plugin||!Array.isArray(j.plugin))process.exit(0);
+    const b=j.plugin.length;
+    j.plugin=j.plugin.filter(s=>typeof s!=="string"||s!==p&&!/hexz|opencode-hexz/.test(s));
+    if(j.plugin.length===b)process.exit(0);
+    if(!j.plugin.length)delete j.plugin;
+    fs.writeFileSync(c,JSON.stringify(j,null,2)+"\n");
     console.log("removed");
   ' 2>/dev/null) || true
 
-  if [ "$result" = "removed" ]; then
-    echo -e "${GREEN}✓${RESET} Removed plugin from $(basename "$config_file")"
-  fi
+  [ "$result" = "removed" ] && ok "Removed plugin from $(basename "$cf")"
 }
 
 remove_plugin_from_mimo_config() {
   local dir="$1"
-  local config_file
-  local plugin_path
+  local pp
+  if [ "$(realpath "$dir" 2>/dev/null)" = "$(realpath "$HOME/.config/mimocode" 2>/dev/null)" ]; then pp="$HOME/.config/mimocode/plugins"; else pp="./.mimocode/plugins"; fi
 
-  plugin_path=$(mimo_plugin_config_path "$dir")
-
-  if ! config_file=$(find_mimo_config "$dir"); then
-    return 0
-  fi
+  local cf
+  for f in "$dir/mimocode.json" "$dir/mimocode.jsonc"; do
+    [ -f "$f" ] && cf="$f" && break
+  done
+  [ -z "${cf:-}" ] && return 0
 
   if ! command -v bun &>/dev/null; then
-    echo -e "${YELLOW}⚠ bun not found, skipping config cleanup${RESET}"
+    warn "bun not found, skipping config cleanup"
     return 0
   fi
 
   local result
-  result=$(CONFIG_FILE="$config_file" PLUGIN_PATH="$plugin_path" bun -e '
-    const fs = require("fs");
-    const configFile = process.env.CONFIG_FILE;
-    const pluginPath = process.env.PLUGIN_PATH;
-    if (!configFile || !pluginPath) process.exit(0);
-    const raw = fs.readFileSync(configFile, "utf8");
-    let config;
-    try { config = JSON.parse(raw); } catch {
-      const clean = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-      try { config = JSON.parse(clean); } catch { process.exit(0); }
-    }
-    if (!config.plugin || !Array.isArray(config.plugin)) process.exit(0);
-    const matchPatterns = [/hexz/, /opencode-hexz/, /mimocode-hexz/];
-    const before = config.plugin.length;
-    config.plugin = config.plugin.filter(p => {
-      if (typeof p !== "string") return true;
-      if (p === pluginPath) return false;
-      return !matchPatterns.some(re => re.test(p));
-    });
-    if (config.plugin.length === before) process.exit(0);
-    if (config.plugin.length === 0) delete config.plugin;
-    fs.writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
+  result=$(CONFIG_FILE="$cf" PLUGIN_PATH="$pp" bun -e '
+    const fs=require("fs"),c=process.env.CONFIG_FILE,p=process.env.PLUGIN_PATH;
+    if(!c||p)return 0;
+    const r=fs.readFileSync(c,"utf8");
+    let j;try{j=JSON.parse(r)}catch{x=r.replace(/\/\/.*$/gm,"").replace(/\/\*[\s\S]*?\*\//g,"");try{j=JSON.parse(x)}catch{process.exit(0)}}
+    if(!j.plugin||!Array.isArray(j.plugin))process.exit(0);
+    const b=j.plugin.length;
+    j.plugin=j.plugin.filter(s=>typeof s!=="string"||s!==p&&!/hexz|opencode-hexz|mimocode-hexz/.test(s));
+    if(j.plugin.length===b)process.exit(0);
+    if(!j.plugin.length)delete j.plugin;
+    fs.writeFileSync(c,JSON.stringify(j,null,2)+"\n");
     console.log("removed");
   ' 2>/dev/null) || true
 
-  if [ "$result" = "removed" ]; then
-    echo -e "${GREEN}✓${RESET} Removed plugin from $(basename "$config_file")"
-  fi
+  [ "$result" = "removed" ] && ok "Removed plugin from $(basename "$cf")"
 }
 
 remove_project() {
   local dir=".opencode"
   local found=0
-
-  for marker in "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"; do
-    if [ -f "$marker" ]; then
-      found=1
-      break
-    fi
+  for m in "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"; do
+    [ -f "$m" ] && found=1 && break
   done
-
-  if [ "$found" -eq 0 ]; then
-    echo -e "${YELLOW}  No project install found${RESET}"
-    return 0
-  fi
+  [ "$found" -eq 0 ] && warn "No project install found" && return 0
 
   if [ "$FORCE" = false ]; then
-    read -rp "  Remove project files from $dir/? [y/N]: " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-      echo -e "  ${YELLOW}Skipped${RESET}"
-      return 0
-    fi
+    read -rp "  Remove project files from $dir/? [y/N]: " c
+    [[ ! "$c" =~ ^[Yy]$ ]] && echo -e "  ${YELLOW}Skipped${RESET}" && return 0
   fi
 
-  rm -rf "$dir/plugins/hexz"
-  rm -f "$dir/plugins/package.json" "$dir/plugins/index.ts"
-  rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"  # legacy
-
-  rm -f "$dir/commands/active.md" "$dir/commands/off.md"
-  rmdir "$dir/commands" 2>/dev/null || true
-  rmdir "$dir" 2>/dev/null || true
+  rm -rf "$dir/plugins/hexz" "$dir/plugins/package.json" "$dir/plugins/index.ts"
+  rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts" "$dir/commands/active.md" "$dir/commands/off.md"
+  rmdir "$dir/commands" 2>/dev/null; rmdir "$dir" 2>/dev/null
   remove_plugin_from_config "."
-  echo -e "${GREEN}✓${RESET} Removed project install"
+  ok "Removed project install"
   removed=1
 }
 
 remove_global() {
   local dir="$HOME/.config/opencode"
   local found=0
-
-  for marker in "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"; do
-    if [ -f "$marker" ]; then
-      found=1
-      break
-    fi
+  for m in "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"; do
+    [ -f "$m" ] && found=1 && break
   done
-
-  if [ "$found" -eq 0 ]; then
-    echo -e "${YELLOW}  No global install found${RESET}"
-    return 0
-  fi
+  [ "$found" -eq 0 ] && warn "No global install found" && return 0
 
   if [ "$FORCE" = false ]; then
-    read -rp "  Remove global files from $dir/? [y/N]: " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-      echo -e "  ${YELLOW}Skipped${RESET}"
-      return 0
-    fi
+    read -rp "  Remove global files from $dir/? [y/N]: " c
+    [[ ! "$c" =~ ^[Yy]$ ]] && echo -e "  ${YELLOW}Skipped${RESET}" && return 0
   fi
 
-  rm -rf "$dir/plugins/hexz"
-  rm -f "$dir/plugins/package.json" "$dir/plugins/index.ts"
-  rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts"  # legacy
-
-  rm -f "$dir/commands/active.md" "$dir/commands/off.md"
-  rmdir "$dir/commands" 2>/dev/null || true
-  rmdir "$dir/plugins" 2>/dev/null || true
+  rm -rf "$dir/plugins/hexz" "$dir/plugins/package.json" "$dir/plugins/index.ts"
+  rm -f "$dir/plugins/hexz.js" "$dir/plugins/hexz.ts" "$dir/commands/active.md" "$dir/commands/off.md"
+  rmdir "$dir/commands" 2>/dev/null; rmdir "$dir/plugins" 2>/dev/null
   remove_plugin_from_config "$dir"
-  echo -e "${GREEN}✓${RESET} Removed global install"
+  ok "Removed global install"
   removed=1
 }
 
 remove_mimo_project() {
   local dir=".mimocode"
   local found=0
-
-  for marker in "$dir/tools/hexz.ts" "$dir/tools/hexz.js" "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/index.ts"; do
-    if [ -f "$marker" ]; then
-      found=1
-      break
-    fi
+  for m in "$dir/tools/hexz.ts" "$dir/tools/hexz.js" "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/index.ts"; do
+    [ -f "$m" ] && found=1 && break
   done
-
-  if [ "$found" -eq 0 ]; then
-    echo -e "${YELLOW}  No MiMo project install found${RESET}"
-    return 0
-  fi
+  [ "$found" -eq 0 ] && warn "No MiMo project install found" && return 0
 
   if [ "$FORCE" = false ]; then
-    read -rp "  Remove MiMo project files from $dir/? [y/N]: " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-      echo -e "  ${YELLOW}Skipped${RESET}"
-      return 0
-    fi
+    read -rp "  Remove MiMo project files from $dir/? [y/N]: " c
+    [[ ! "$c" =~ ^[Yy]$ ]] && echo -e "  ${YELLOW}Skipped${RESET}" && return 0
   fi
 
   rm -f "$dir/tools/hexz.js" "$dir/tools/hexz.ts" "$dir/tools/package.json"
-  rm -rf "$dir/tools/node_modules" "$dir/plugins/hexz"
-  rm -f "$dir/plugins/package.json" "$dir/plugins/index.ts"
-  rm -rf "$dir/cybersecurity"
-  rmdir "$dir/tools" 2>/dev/null || true
-  rmdir "$dir/commands" 2>/dev/null || true
-  rmdir "$dir/plugins" 2>/dev/null || true
-  rmdir "$dir" 2>/dev/null || true
+  rm -rf "$dir/tools/node_modules" "$dir/plugins/hexz" "$dir/plugins/package.json" "$dir/plugins/index.ts" "$dir/cybersecurity"
+  rmdir "$dir/tools" 2>/dev/null; rmdir "$dir/commands" 2>/dev/null; rmdir "$dir/plugins" 2>/dev/null; rmdir "$dir" 2>/dev/null
   remove_plugin_from_mimo_config "."
-  echo -e "${GREEN}✓${RESET} Removed MiMo project install"
+  ok "Removed MiMo project install"
   removed=1
 }
 
 remove_mimo_global() {
   local dir="$HOME/.config/mimocode"
   local found=0
-
-  for marker in "$dir/tools/hexz.ts" "$dir/tools/hexz.js" "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/index.ts"; do
-    if [ -f "$marker" ]; then
-      found=1
-      break
-    fi
+  for m in "$dir/tools/hexz.ts" "$dir/tools/hexz.js" "$dir/plugins/hexz/index.ts" "$dir/plugins/hexz/index.js" "$dir/plugins/index.ts"; do
+    [ -f "$m" ] && found=1 && break
   done
-
-  if [ "$found" -eq 0 ]; then
-    echo -e "${YELLOW}  No MiMo global install found${RESET}"
-    return 0
-  fi
+  [ "$found" -eq 0 ] && warn "No MiMo global install found" && return 0
 
   if [ "$FORCE" = false ]; then
-    read -rp "  Remove MiMo global files from $dir/? [y/N]: " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-      echo -e "  ${YELLOW}Skipped${RESET}"
-      return 0
-    fi
+    read -rp "  Remove MiMo global files from $dir/? [y/N]: " c
+    [[ ! "$c" =~ ^[Yy]$ ]] && echo -e "  ${YELLOW}Skipped${RESET}" && return 0
   fi
 
   rm -f "$dir/tools/hexz.js" "$dir/tools/hexz.ts" "$dir/tools/package.json"
-  rm -rf "$dir/tools/node_modules" "$dir/plugins/hexz"
-  rm -f "$dir/plugins/package.json" "$dir/plugins/index.ts"
-  rm -rf "$dir/cybersecurity"
-  rmdir "$dir/tools" 2>/dev/null || true
-  rmdir "$dir/commands" 2>/dev/null || true
-  rmdir "$dir/plugins" 2>/dev/null || true
+  rm -rf "$dir/tools/node_modules" "$dir/plugins/hexz" "$dir/plugins/package.json" "$dir/plugins/index.ts" "$dir/cybersecurity"
+  rmdir "$dir/tools" 2>/dev/null; rmdir "$dir/commands" 2>/dev/null; rmdir "$dir/plugins" 2>/dev/null
   remove_plugin_from_mimo_config "$dir"
-  echo -e "${GREEN}✓${RESET} Removed MiMo global install"
+  ok "Removed MiMo global install"
   removed=1
 }
 
+section "Removing"
+
 if [ "$RUNTIME" = "mimo" ]; then
   case "$TARGET" in
-    all)
-      remove_mimo_project
-      remove_mimo_global
-      ;;
-    project)
-      remove_mimo_project
-      ;;
-    global)
-      remove_mimo_global
-      ;;
+    all)     remove_mimo_project; remove_mimo_global ;;
+    project) remove_mimo_project ;;
+    global)  remove_mimo_global ;;
   esac
 else
   case "$TARGET" in
-    all)
-      remove_project
-      remove_global
-      ;;
-    project)
-      remove_project
-      ;;
-    global)
-      remove_global
-      ;;
+    all)     remove_project; remove_global ;;
+    project) remove_project ;;
+    global)  remove_global ;;
   esac
 fi
 
 echo ""
 if [ "$removed" -eq 1 ]; then
+  echo -e "  ${GREEN}${BOLD}HEXZ removed!${RESET}"
   if [ "$RUNTIME" = "mimo" ]; then
-    echo -e "${GREEN}${BOLD}  HEXZ removed.${RESET} Restart mimo / MiMo Code."
+    echo "  Restart mimo / MiMo Code."
   else
-    echo -e "${GREEN}${BOLD}  HEXZ removed.${RESET} Restart opencode."
+    echo "  Restart opencode."
   fi
 else
-  echo -e "${YELLOW}  Nothing to remove.${RESET}"
+  echo -e "  ${YELLOW}Nothing to remove.${RESET}"
 fi
 echo ""

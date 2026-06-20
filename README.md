@@ -1,14 +1,14 @@
 <div align="center">
 
 # HEXZ
-### OpenCode Upgrade Layer
+### OpenCode & MiMo Code Upgrade Layer
 
 [![License](https://img.shields.io/badge/license-MIT-brightgreen?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v1.5.0-blueviolet?style=flat-square)](https://github.com/hexzonetwork/opencode-hexz/releases)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-orange?style=flat-square)](#)
 [![Bun](https://img.shields.io/badge/runtime-bun-fbf0df?style=flat-square&logo=bun&logoColor=black)](https://bun.sh)
 
-A plugin for [OpenCode](https://opencode.ai) — anti-slop enforcement, 769+ cybersecurity skills, design scaffolding, web search, OCR, screenshots, MCP, persistent memory, and PR automation.
+A plugin for [OpenCode](https://opencode.ai) and [MiMo Code](https://mimo.xiaomi.com/mimocode/start) — anti-slop enforcement, 769+ cybersecurity skills, design scaffolding, web search, OCR, screenshots, MCP, persistent memory, and PR automation.
 
 </div>
 
@@ -49,6 +49,7 @@ A plugin for [OpenCode](https://opencode.ai) — anti-slop enforcement, 769+ cyb
 | **Persistent Memory** | Project context, preferences, and session summaries survive restarts |
 | **Model Routing** | Per-task model routing (e.g. design → gpt-4o, scan → claude-3-opus) |
 | **Build Workflow** | Enforced research → plan → simulate → build → scan → review cycle |
+| **MiMo Code Adapter** | Native integration — 14 tools via `.mimocode/tools/`, auto-detected on activate |
 
 ---
 
@@ -103,8 +104,8 @@ echo '{"plugin": ["opencode-hexz"]}' > opencode.json
 ### Activate / Deactivate
 
 ```
-/active     Engage HEXZ upgrade layer
-/off        Revert to default OpenCode behavior
+/active     Engage HEXZ upgrade layer (OpenCode or MiMo Code)
+/off        Revert to default behavior
 ```
 
 ### Tools
@@ -244,7 +245,7 @@ HEXZ enforces technical writing by eliminating AI-tell patterns.
 
 ## Configuration
 
-### opencode.json
+### opencode.json / mimocode.json
 
 ```json
 {
@@ -253,9 +254,11 @@ HEXZ enforces technical writing by eliminating AI-tell patterns.
 }
 ```
 
+MiMo Code uses `.mimocode/tools/hexz.ts` instead of the plugin system — no config file needed.
+
 ### Data Storage
 
-HEXZ persists data to `~/.config/opencode/hexz-memory.json`:
+HEXZ persists data to `~/.config/opencode/hexz-memory.json` (OpenCode) or `~/.config/mimocode/hexz-memory.json` (MiMo Code):
 
 - Active state, search count, session count
 - Model routing config (routes + enabled/disabled)
@@ -305,6 +308,6 @@ rm -f ~/.config/mimocode/tools/hexz.ts
 
 <div align="center">
 
-**[MIT License](LICENSE)** · [OpenCode](https://opencode.ai) · [Report Issues](https://github.com/hexzonetwork/opencode-hexz/issues) · [Contribute](CONTRIBUTING.md)
+**[MIT License](LICENSE)** · [OpenCode](https://opencode.ai) · [MiMo Code](https://mimo.xiaomi.com/mimocode/start) · [Report Issues](https://github.com/hexzonetwork/opencode-hexz/issues) · [Contribute](CONTRIBUTING.md)
 
 </div>
