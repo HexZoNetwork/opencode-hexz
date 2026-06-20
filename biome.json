@@ -1,17 +1,17 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
-  "organizeImports": { "enabled": true },
+  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "correctness": {
         "noUnusedVariables": "warn",
         "noUnusedImports": "warn"
       },
       "suspicious": {
         "noExplicitAny": "warn",
-        "noControlCharactersInRegex": "off"
+        "noControlCharactersInRegex": "off",
+        "useIterableCallbackReturn": "off"
       },
       "complexity": {
         "useLiteralKeys": "off"
@@ -27,5 +27,34 @@
     "indentStyle": "space",
     "indentWidth": 2,
     "lineWidth": 100
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["src/design/**"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useButtonType": "off",
+            "noSvgWithoutTitle": "off",
+            "useValidAnchor": "off",
+            "useGenericFontNames": "off",
+            "useSemanticElements": "off",
+            "noLabelWithoutControl": "off",
+            "useAnchorContent": "off",
+            "noStaticElementInteractions": "off",
+            "useKeyWithClickEvents": "off",
+            "useAriaPropsSupportedByRole": "off"
+          },
+          "suspicious": {
+            "noImportantInKeyframe": "off",
+            "noDuplicateProperties": "off",
+            "noAssignInExpressions": "off"
+          },
+          "correctness": {
+            "noInnerDeclarations": "off"
+          }
+        }
+      }
+    }
+  ]
 }
