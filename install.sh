@@ -289,7 +289,7 @@ PKGEOF
     cat > "$plugdir/package.json" << 'PKGEOF'
 {
   "name": "mimocode-hexz",
-  "version": "1.5.0",
+  "version": "1.5.2",
   "type": "module",
   "main": "index.ts"
 }
@@ -314,7 +314,7 @@ TSEOF
     cat > "$plugdir/package.json" << 'PKGEOF'
 {
   "name": "opencode-hexz",
-  "version": "1.5.0",
+  "version": "1.5.2",
   "type": "module",
   "main": "index.ts",
   "dependencies": {
