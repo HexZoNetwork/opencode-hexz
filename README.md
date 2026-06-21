@@ -9,11 +9,10 @@
 [![Bun](https://img.shields.io/badge/runtime-bun-fbf0df?style=flat-square&logo=bun&logoColor=black)](https://bun.sh)
 
 A plugin for [OpenCode](https://opencode.ai), [MiMo Code](https://mimo.xiaomi.com/mimocode/start), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), and [OpenAI Codex](https://openai.com/index/codex) — anti-slop enforcement, 769+ cybersecurity skills, design scaffolding, web search, OCR, screenshots, MCP, persistent memory, and PR automation.
-
-> [!WARNING]
-> **Claude Code** and **Codex** support is **untested and experimental**. OpenCode remains the primary target — contributions welcome.
-
 </div>
+
+> [!IMPORTANT]
+> **Claude Code** and **Codex** support is **untested and experimental**. OpenCode remains the primary target — contributions welcome.
 
 ---
 
