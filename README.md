@@ -60,6 +60,8 @@ A plugin for [OpenCode](https://opencode.ai) and [MiMo Code](https://mimo.xiaomi
 - [Bun](https://bun.sh) runtime (v1.0+)
 - [OpenCode](https://opencode.ai) or [MiMo Code](https://mimo.xiaomi.com/mimocode/start) installed
 
+If Bun is missing, install it yourself first, or pass `--install-bun` to let `install.sh` run Bun's official installer.
+
 ### Quick Install
 
 ```bash

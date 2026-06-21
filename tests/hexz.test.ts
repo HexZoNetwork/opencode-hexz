@@ -1,4 +1,7 @@
-import { describe, expect, it } from "bun:test"
+import { afterEach, describe, expect, it } from "bun:test"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   VERSION,
   HexzPlugin,
@@ -8,10 +11,53 @@ import {
   redactSecrets,
   resolveProjectPath,
 } from "../src/hexz"
+import { hexz_mkp } from "../src/hexz-mimo"
+import { isSafePackageName, parseGithubRepo } from "../src/shared"
+
+const originalCwd = process.cwd()
+
+afterEach(() => {
+  process.chdir(originalCwd)
+})
 
 describe("VERSION", () => {
   it("matches package.json version", () => {
-    expect(VERSION).toBe("1.5.0")
+    expect(VERSION).toBe("1.5.2")
+  })
+})
+
+describe("MiMo marketplace helpers", () => {
+  it("validates GitHub repo targets without treating npm scopes as repos", () => {
+    expect(parseGithubRepo("owner/repo")).toEqual(["owner", "repo"])
+    expect(parseGithubRepo("@scope/package")).toBeNull()
+    expect(parseGithubRepo("owner/repo;rm -rf /")).toBeNull()
+  })
+
+  it("accepts scoped packages and rejects shell metacharacters", () => {
+    expect(isSafePackageName("left-pad")).toBe(true)
+    expect(isSafePackageName("@scope/package")).toBe(true)
+    expect(isSafePackageName("pkg && rm -rf /")).toBe(false)
+  })
+
+  it("removes marketplace files instead of truncating them", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hexz-mkp-"))
+    try {
+      process.chdir(dir)
+      const toolsDir = join(dir, ".mimocode", "tools")
+      const commandsDir = join(dir, ".mimocode", "commands")
+      mkdirSync(toolsDir, { recursive: true })
+      mkdirSync(commandsDir, { recursive: true })
+      writeFileSync(join(toolsDir, "demo.ts"), "export default {}")
+      writeFileSync(join(commandsDir, "demo.md"), "---\ndescription: demo\n---\n")
+
+      const result = await hexz_mkp.execute({ target: "remove:demo" })
+
+      expect(result).toContain("Removed demo")
+      expect(existsSync(join(toolsDir, "demo.ts"))).toBe(false)
+      expect(existsSync(join(commandsDir, "demo.md"))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

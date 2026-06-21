@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.sims/
+coverage/
+test/node_modules/
+test/dist/
+src/cybersecurity/skills-mukul/

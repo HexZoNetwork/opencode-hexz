@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { isAbsolute, join, relative, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
+import { escapeHtml, isSafePackageName, isSafeWebUrl, parseGithubRepo, resolveProjectPath } from "./shared"
 
 const TYPE_MAP: Record<string, string> = { string: "ZodString", number: "ZodNumber", boolean: "ZodBoolean" }
 function zodDef(typeName: string, description?: string) {
@@ -30,9 +31,14 @@ tool.schema = {
   boolean: () => schemaField({ type: "boolean" }),
 }
 
-const VERSION = "1.5.0"
+const VERSION = "1.5.2"
 const memoryPath = join(homedir(), ".config", "mimocode", "hexz-memory.json")
 const SIMS_DIR = ".sims"
+const SEARXNG_PORT = 8888
+const SEARXNG_CONTAINER = "hexz-searxng"
+const DDG_RECOVERY_CHECK_MS = 60000
+let searXngUrl = ""
+let searXngRecoveryTimer: ReturnType<typeof setInterval> | null = null
 
 const CYBER_DOMAINS = [
   { id: "recon", label: "Reconnaissance", keywords: ["recon", "reconnaissance", "info gathering", "enumeration", "osint"] },
@@ -52,26 +58,137 @@ const CYBER_DOMAINS = [
   { id: "blue-team", label: "Blue Teaming", keywords: ["blue", "team", "defense", "monitoring", "hardening"] },
 ]
 
-function isInsidePath(baseDir: string, targetPath: string): boolean {
-  const rel = relative(resolve(baseDir), resolve(targetPath))
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))
+function ensureSearXng(): string | null {
+  if (searXngUrl) return searXngUrl
+  try {
+    const info = spawnSync("docker", ["info"], { stdio: "pipe", encoding: "utf8" })
+    if (info.status !== 0) {
+      if (!tryInstallDocker()) return null
+      const retry = spawnSync("docker", ["info"], { stdio: "pipe", encoding: "utf8" })
+      if (retry.status !== 0) return null
+    }
+    spawnSync("docker", ["stop", SEARXNG_CONTAINER], { stdio: "ignore" })
+    const key = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+    const settingsDir = join(homedir(), ".config", "hexz-searxng")
+    mkdirSync(settingsDir, { recursive: true })
+    const settingsPath = join(settingsDir, "settings.yml")
+    writeFileSync(settingsPath, `use_default_settings: true
+server:
+  secret_key: "hexz-${key}"
+  bind_address: "0.0.0.0"
+  limiter: false
+  image_proxy: false
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+`)
+    const run = spawnSync("docker", ["run", "-d", "--rm", "--name", SEARXNG_CONTAINER, "-p", `127.0.0.1:${SEARXNG_PORT}:8080`, "-v", `${settingsPath}:/etc/searxng/settings.yml:ro`, "-e", "SEARXNG_SECRET_KEY=" + key, "searxng/searxng"], { encoding: "utf8" })
+    if (run.status !== 0) return null
+    searXngUrl = `http://127.0.0.1:${SEARXNG_PORT}`
+    return searXngUrl
+  } catch { return null }
 }
-
-function resolveProjectPath(baseDir: string, input: string): string | null {
-  if (!input.trim() || input.includes("\0")) return null
-  const targetPath = resolve(baseDir, input)
-  return isInsidePath(baseDir, targetPath) ? targetPath : null
+function tryInstallDocker(): boolean {
+  try {
+    const isRoot = spawnSync("id", ["-u"], { encoding: "utf8" }).stdout.trim() === "0"
+    const prefix = isRoot ? "" : "sudo "
+    let cmd = ""
+    if (spawnSync("command", ["-v", "curl"], { stdio: "pipe" }).status === 0) cmd = `curl -fsSL https://get.docker.com | ${prefix}sh`
+    else if (spawnSync("command", ["-v", "wget"], { stdio: "pipe" }).status === 0) cmd = `wget -qO- https://get.docker.com | ${prefix}sh`
+    else return false
+    const r = spawnSync("sh", ["-c", cmd], { stdio: "pipe", timeout: 120000, encoding: "utf8" })
+    return r.status === 0
+  } catch { return false }
 }
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
+function stopSearXng(): void {
+  if (!searXngUrl) return
+  spawnSync("docker", ["stop", SEARXNG_CONTAINER], { stdio: "ignore" })
+  searXngUrl = ""
+  try { rmSync(join(homedir(), ".config", "hexz-searxng", "settings.yml")) } catch {}
 }
-
+function startDdgRecoveryCheck(): void {
+  if (searXngRecoveryTimer) return
+  searXngRecoveryTimer = setInterval(async () => {
+    try {
+      const ac = new AbortController()
+      const t = setTimeout(() => ac.abort(), 5000)
+      const res = await fetch("https://api.duckduckgo.com/?q=healthz&format=json&no_html=1&skip_disambig=1", { signal: ac.signal })
+      clearTimeout(t)
+      if (res.ok) {
+        stopSearXng()
+        if (searXngRecoveryTimer) {
+          clearInterval(searXngRecoveryTimer)
+          searXngRecoveryTimer = null
+        }
+      }
+    } catch {}
+  }, DDG_RECOVERY_CHECK_MS)
+}
+async function searchSearXng(query: string): Promise<string | null> {
+  const baseUrl = ensureSearXng()
+  if (!baseUrl) return null
+  let ready = false
+  for (let i = 0; i < 30; i++) {
+    try {
+      const ac = new AbortController()
+      const t = setTimeout(() => ac.abort(), 3000)
+      const res = await fetch(`${baseUrl}/search?q=healthz&format=json`, { signal: ac.signal })
+      clearTimeout(t)
+      if (res.ok) { ready = true; break }
+    } catch {}
+    await new Promise(r => setTimeout(r, 1000))
+  }
+  if (!ready) {
+    stopSearXng()
+    return null
+  }
+  startDdgRecoveryCheck()
+  try {
+    const ac = new AbortController()
+    const t = setTimeout(() => ac.abort(), 15000)
+    const res = await fetch(`${baseUrl}/search?q=${encodeURIComponent(query)}&format=json&language=en-US`, { signal: ac.signal })
+    clearTimeout(t)
+    if (!res.ok) return null
+    const data = (await res.json()) as any
+    const results: Array<{ title?: string; content?: string; url?: string }> = data.results ?? []
+    if (results.length === 0) return "No results (SearXNG)."
+    return results.slice(0, 5).map(r => `${r.title || ""}${r.content ? ` — ${r.content.slice(0, 200)}` : ""}`).join("\n")
+  } catch { return null }
+}
+async function searchChromium(query: string): Promise<string | null> {
+  try {
+    let executablePath: string | undefined
+    for (const bin of ["chromium-browser", "google-chrome-stable", "google-chrome", "chromium"]) {
+      const r = spawnSync("command", ["-v", bin], { stdio: "pipe", encoding: "utf8" })
+      if (r.status === 0) { executablePath = r.stdout.trim(); break }
+    }
+    const mod = await import("puppeteer") as any
+    const browser = await (mod.default || mod).launch({
+      headless: true,
+      executablePath,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    })
+    const page = await browser.newPage()
+    await page.goto(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`, {
+      waitUntil: "networkidle0",
+      timeout: 15000,
+    })
+    const html: string = await page.content()
+    await browser.close()
+    const items: string[] = []
+    const regex = /<a[^>]+class="result-link"[^>]*>([\s\S]*?)<\/a>/gi
+    let m: RegExpExecArray | null = regex.exec(html)
+    while (m !== null && items.length < 5) {
+      const t = m[1].replace(/<[^>]*>/g, "").trim()
+      if (t) items.push(`• ${t}`)
+      m = regex.exec(html)
+    }
+    return items.length ? items.join("\n") : null
+  } catch { return null }
+}
 function redactSecrets(text: string): string {
   return text
     .replace(/((?:api[_-]?key|apikey)\s*[:=]\s*['"])[^'"]+(['"])/gi, "$1REDACTED$2")
@@ -86,11 +203,11 @@ function redactSecrets(text: string): string {
 }
 
 function commandExists(name: string): boolean {
-  return spawnSync("sh", ["-c", `command -v ${name}`], { stdio: "ignore" }).status === 0
+  return spawnSync("command", ["-v", "--", name], { shell: true, stdio: "ignore" }).status === 0
 }
 
-function run(command: string, cwd = process.cwd()): string {
-  const result = spawnSync("sh", ["-c", command], { cwd, encoding: "utf8" })
+function run(command: string, args: string[] = [], cwd = process.cwd()): string {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8" })
   return redactSecrets(`${result.stdout || ""}${result.stderr || ""}`.trim())
 }
 
@@ -123,6 +240,7 @@ function scanSecrets(target: string): string {
   ]
 
   function shouldScan(path: string): boolean {
+    if (path.replace(/\\/g, "/").includes("/cybersecurity/skills-mukul/")) return false
     const name = path.split(/[\\/]/).pop() ?? ""
     if (name.startsWith(".env")) return true
     const ext = name.includes(".") ? `.${name.split(".").pop()}` : ""
@@ -132,6 +250,7 @@ function scanSecrets(target: string): string {
   function scanFile(path: string): void {
     let content = ""
     try { content = readFileSync(path, "utf8") } catch { return }
+    content = content.replace(/-----BEGIN PRIVATE KEY-----(?:\\n|\n)REDACTED(?:\\n|\n)-----END PRIVATE KEY-----/g, "")
     for (const [name, pattern] of patterns) {
       pattern.lastIndex = 0
       if (pattern.test(content)) findings.push(`Found ${name} pattern in ${path}`)
@@ -251,32 +370,32 @@ function readCyberFrameworkMapping(dir: string, framework: string): string {
   }
 }
 
-function isSafeWebUrl(url: string): boolean {
-  try {
-    const u = new URL(url)
-    if (u.protocol !== "http:" && u.protocol !== "https:") return false
-    const host = u.hostname.toLowerCase()
-    if (["localhost", "0.0.0.0", "127.0.0.1", "::1"].includes(host)) return false
-    if (host.endsWith(".local") || host.startsWith("127.")) return false
-    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return false
-    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return false
-    return true
-  } catch {
-    return false
-  }
-}
-
 export const hexz_search = tool({
   description: "Search DuckDuckGo for current docs, API changes, and info",
   args: { query: tool.schema.string().describe("Search query") },
   async execute(args: any) {
     const q = (args.query || "").trim().slice(0, 300)
     if (!q) return "Empty query."
-    const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`)
-    if (!res.ok) return `Search failed: HTTP ${res.status}`
-    const data = await res.json() as { RelatedTopics?: Array<{ Text?: string }> }
-    const items = (data.RelatedTopics ?? []).filter((item) => item.Text).slice(0, 5).map((item) => `- ${item.Text}`)
-    return items.length ? items.join("\n") : "No results."
+    let ddgFailed = false
+    let ddgResult = ""
+    try {
+      const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`)
+      if (!res.ok) {
+        ddgFailed = true
+      } else {
+        const data = await res.json() as { RelatedTopics?: Array<{ Text?: string }> }
+        const items = (data.RelatedTopics ?? []).filter((item) => item.Text).slice(0, 5).map((item) => `- ${item.Text}`)
+        ddgResult = items.length ? items.join("\n") : "No results."
+      }
+    } catch {
+      ddgFailed = true
+    }
+    if (!ddgFailed) return ddgResult
+    const fallback = await searchSearXng(q)
+    if (fallback !== null) return fallback
+    const cr = await searchChromium(q)
+    if (cr !== null) return cr
+    return "Search failed (network error). All 3 fallbacks exhausted."
   },
 })
 
@@ -294,14 +413,14 @@ export const hexz_scan = tool({
     if (mode === "full" || mode === "deps") {
       lines.push("", "DEPENDENCY SCANNING:")
       if (existsSync(join(target, "bun.lock")) || existsSync(join(process.cwd(), "bun.lock"))) {
-        lines.push(commandExists("bun") ? run("bun audit", process.cwd()) : "bun not installed. Skipping Bun dependency audit.")
+        lines.push(commandExists("bun") ? run("bun", ["audit"], process.cwd()) : "bun not installed. Skipping Bun dependency audit.")
       } else if (existsSync(join(target, "package-lock.json")) || existsSync(join(process.cwd(), "package-lock.json"))) {
-        lines.push(commandExists("npm") ? run("npm audit --json 2>/dev/null || npm audit", process.cwd()) : "npm not installed. Skipping npm dependency audit.")
+        lines.push(commandExists("npm") ? run("npm", ["audit", "--json"], process.cwd()) : "npm not installed. Skipping npm dependency audit.")
       } else {
         lines.push("No supported dependency lockfile found.")
       }
       if (commandExists("semgrep") && mode === "full") {
-        const sg = run(`semgrep --config=p/owasp-top-ten --config=p/secrets --json --quiet ${target} 2>/dev/null || true`, process.cwd())
+        const sg = run("semgrep", ["--config=p/owasp-top-ten", "--config=p/secrets", "--json", "--quiet", target], process.cwd())
         lines.push("", "SEMGREP STATIC ANALYSIS:", sg || "semgrep returned no output.")
       }
     }
@@ -342,6 +461,7 @@ export const hexz_image = tool({
     const imagePath = resolveProjectPath(process.cwd(), args.image_path)
     if (!imagePath) return "Image path must stay inside the project directory."
     if (!existsSync(imagePath)) return `[HEXZ Image] File not found: ${args.image_path}`
+    if (!/\.(png|jpg|jpeg|gif|bmp|webp|svg|tiff?)$/i.test(args.image_path)) return `[HEXZ Image] Unsupported format. Supported: png, jpg, jpeg, gif, bmp, webp, svg, tiff`
     const intent = args.intent ?? "auto"
     try {
       const mod = await import("tesseract.js") as any
@@ -494,25 +614,25 @@ export const hexz_pr = tool({
     const a = args.action
     if (a === "status") {
       if (!commandExists("git")) return "[HEXZ PR] git not available."
-      const branch = run("git branch --show-current")
-      const status = run("git status --short")
-      const ahead = run("git log --oneline @{u}.. 2>/dev/null || true")
+      const branch = run("git", ["branch", "--show-current"])
+      const status = run("git", ["status", "--short"])
+      const ahead = run("git", ["log", "--oneline", "@{u}.."])
       return `[HEXZ PR] Branch: ${branch}\n${status || "Clean working tree"}\n${ahead ? `Ahead by:\n${ahead}` : "Up to date with remote"}`
     }
     if (a === "diff") {
       if (!commandExists("git")) return "[HEXZ PR] git not available."
-      const diff = run("git diff HEAD --stat")
-      const staged = run("git diff --cached --stat")
+      const diff = run("git", ["diff", "HEAD", "--stat"])
+      const staged = run("git", ["diff", "--cached", "--stat"])
       return `[HEXZ PR] Changes:\n${diff || "(unstaged)"}\n${staged ? `\nStaged:\n${staged}` : ""}`
     }
     if (a === "create") {
       if (!commandExists("git") || !commandExists("gh")) return "[HEXZ PR] git or gh CLI not available."
-      const branch = run("git branch --show-current")
+      const branch = run("git", ["branch", "--show-current"])
       const base = args.base ?? "main"
       const title = args.title ?? `Update ${branch}`
       const body = `Automated PR from HEXZ v${VERSION}\n\nBranch: ${branch}\nBase: ${base}`
-      run(`git push -u origin ${branch} 2>/dev/null || true`)
-      const prUrl = run(`gh pr create --base ${base} --title ${title} --body ${body}`)
+      run("git", ["push", "-u", "origin", branch])
+      const prUrl = run("gh", ["pr", "create", "--base", base, "--title", title, "--body", body])
       return prUrl ? `[HEXZ PR] ${prUrl}` : "[HEXZ PR] Failed to create PR."
     }
     return "Usage: hexz_pr action=(status|diff|create) [title=<text>] [base=<branch>]"
@@ -537,10 +657,14 @@ export const hexz_mkp = tool({
     }
 
     if (t.startsWith("remove:")) {
-      const name = t.slice(7).trim()
+      const rawName = t.slice(7).trim()
+      const name = rawName.replace(/[^a-zA-Z0-9._-]/g, "")
+      if (!name || name !== rawName) return "Invalid remove target."
       let removed = false
-      try { writeFileSync(join(toolsDir, `${name}.ts`), ""); removed = true } catch {}
-      try { writeFileSync(join(commandsDir, `${name}.md`), ""); removed = true } catch {}
+      for (const targetPath of [join(toolsDir, `${name}.ts`), join(toolsDir, name), join(commandsDir, `${name}.md`)]) {
+        if (!existsSync(targetPath)) continue
+        try { rmSync(targetPath, { recursive: true, force: true }); removed = true } catch {}
+      }
       return removed ? `[HEXZ MKP] Removed ${name}` : `[HEXZ MKP] ${name} not found.`
     }
 
@@ -556,10 +680,11 @@ export const hexz_mkp = tool({
         return `Created skill '${name}'.`
       }
       if (skillArg.includes("/")) {
-        const [owner, repo] = skillArg.split("/")
-        if (!owner || !repo) return "Use owner/repo format."
+        const repoParts = parseGithubRepo(skillArg)
+        if (!repoParts) return "Use owner/repo format."
+        const [owner, repo] = repoParts
         const tmpDir = `/tmp/hexz-skill-${Date.now()}`
-        const clone = run(`git clone https://github.com/${owner}/${repo}.git ${tmpDir} --depth 1 2>&1 || true`)
+        const clone = run("git", ["clone", `https://github.com/${owner}/${repo}.git`, tmpDir, "--depth", "1"])
         if (clone.includes("fatal")) return `Failed to clone: ${clone}`
         let count = 0
         for (const searchDir of ["", "skills", "commands"]) {
@@ -575,33 +700,34 @@ export const hexz_mkp = tool({
             }
           } catch {}
         }
-        run(`rm -rf ${tmpDir}`)
+        rmSync(tmpDir, { recursive: true, force: true })
         return `Installed ${count} skill(s) from ${owner}/${repo}.`
       }
       return 'Usage: skill:name --content "..." or skill:owner/repo'
     }
 
-    if (t.includes("/") && !t.startsWith("http") && t.split("/").length === 2) {
-      const [owner, repo] = t.split("/")
-      const safeOwner = owner.replace(/[^a-zA-Z0-9._-]/g, "")
-      const safeRepo = repo.replace(/[^a-zA-Z0-9._-]/g, "")
-      const pluginDir = join(toolsDir, safeRepo)
+    const githubRepo = parseGithubRepo(t)
+    if (githubRepo) {
+      const [owner, repo] = githubRepo
+      const pluginDir = join(toolsDir, repo)
       mkdirSync(pluginDir, { recursive: true })
-      const result = run(`git clone https://github.com/${safeOwner}/${safeRepo}.git ${pluginDir} --depth 1 2>&1 || true`)
+      const result = run("git", ["clone", `https://github.com/${owner}/${repo}.git`, pluginDir, "--depth", "1"])
       return result.includes("Cloning into") ? `[HEXZ MKP] Installed ${t}.` : `[HEXZ MKP] ${result}`
     }
 
-    if (/^[a-zA-Z0-9@._-]+$/.test(t)) {
-      const result = run(`npm install ${t} --save 2>&1 || bun add ${t} 2>&1 || true`)
+    if (isSafePackageName(t)) {
+      const result = commandExists("npm") ? run("npm", ["install", t, "--save"]) : run("bun", ["add", t])
       return result ? `[HEXZ MKP] ${result.slice(0, 500)}` : `[HEXZ MKP] Installed ${t}.`
     }
 
     if (t.startsWith("http")) {
+      if (!isSafeWebUrl(t)) return "URL must be public http(s), not localhost or a private network address."
       const name = t.split("/").pop()?.replace(/\.git$/, "") || "plugin"
       const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "")
+      if (!safeName) return "Could not determine plugin name from URL."
       const pluginDir = join(toolsDir, safeName)
       mkdirSync(pluginDir, { recursive: true })
-      const result = run(`git clone ${t} ${pluginDir} --depth 1 2>&1 || true`)
+      const result = run("git", ["clone", t, pluginDir, "--depth", "1"])
       return result.includes("Cloning into") ? `[HEXZ MKP] Installed as '${safeName}'.` : `[HEXZ MKP] ${result}`
     }
 
@@ -691,7 +817,16 @@ export const hexz_cyber = tool({
     list: tool.schema.boolean().optional(),
   },
   async execute(args: any) {
-    const cyberDir = join(process.cwd(), ".mimocode", "cybersecurity")
+    const cyberDir = (() => {
+      const candidates = [
+        join(process.cwd(), ".mimocode", "cybersecurity"),
+        join(process.cwd(), "src", "cybersecurity"),
+      ]
+      for (const p of candidates) {
+        try { if (existsSync(p)) return p } catch {}
+      }
+      return candidates[0]
+    })()
     if (args.list) {
       const skills = listCyberSkills(cyberDir)
       return `[HEXZ Cyber] Available skills (${skills.length} total):\n${skills.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\nFrameworks: mitre, nist, owasp`
@@ -741,3 +876,6 @@ export const hexz_cyber = tool({
     return lines.join("\n")
   },
 })
+
+process.on("exit", () => stopSearXng())
+process.on("SIGINT", () => { stopSearXng(); process.exit(0) })

@@ -90,6 +90,14 @@ banner "$RUNTIME"
 
 removed=0
 
+stop_searxng() {
+  if command -v docker &>/dev/null; then
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'hexz-searxng'; then
+      docker stop hexz-searxng &>/dev/null && ok "Stopped SearXNG container"
+    fi
+  fi
+}
+
 remove_plugin_from_config() {
   local dir="$1"
   local pp
@@ -243,6 +251,7 @@ remove_mimo_global() {
 }
 
 section "Removing"
+stop_searxng
 
 if [ "$RUNTIME" = "mimo" ]; then
   case "$TARGET" in

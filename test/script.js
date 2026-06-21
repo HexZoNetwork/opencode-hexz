@@ -78,13 +78,22 @@ const routeData = {
   ],
 };
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function renderStats(container) {
   container.innerHTML = data.stats
     .map(
       (s) =>
         `<div class="stats__item">
-          <div class="stats__value" data-count="${s.value}">0</div>
-          <div class="stats__label">${s.label}</div>
+          <div class="stats__value" data-count="${escapeHtml(s.value)}">0</div>
+          <div class="stats__label">${escapeHtml(s.label)}</div>
         </div>`
     )
     .join("");
@@ -96,8 +105,8 @@ function renderFeatures(container) {
       (f) =>
         `<div class="feature reveal">
           <span class="feature__icon">${ICONS[f.icon]}</span>
-          <div class="feature__name">${f.name}</div>
-          <div class="feature__desc">${f.desc}</div>
+          <div class="feature__name">${escapeHtml(f.name)}</div>
+          <div class="feature__desc">${escapeHtml(f.desc)}</div>
         </div>`
     )
     .join("");
@@ -109,8 +118,8 @@ function renderCommands(container) {
       (c) =>
         `<div class="command">
           <span class="command__prefix">/</span>
-          <span class="command__name">${c.name}</span>
-          <span class="command__desc">${c.desc}</span>
+          <span class="command__name">${escapeHtml(c.name)}</span>
+          <span class="command__desc">${escapeHtml(c.desc)}</span>
         </div>`
     )
     .join("");
@@ -122,8 +131,8 @@ function renderWorkflow(container) {
       (w, i) =>
         `<div class="workflow__step reveal">
           <div class="workflow__step-num">${i + 1}</div>
-          <div class="workflow__step-name">${w.name}</div>
-          <div class="workflow__step-desc">${w.desc}</div>
+          <div class="workflow__step-name">${escapeHtml(w.name)}</div>
+          <div class="workflow__step-desc">${escapeHtml(w.desc)}</div>
         </div>`
     )
     .join("");
@@ -186,9 +195,9 @@ function renderRoutes() {
     listEl.innerHTML = routeData.routes.map((r, i) => `
       <div class="routes__route">
         <span class="routes__route-idx">${i + 1}</span>
-        <span class="routes__route-model">${r.model}</span>
+        <span class="routes__route-model">${escapeHtml(r.model)}</span>
         <span class="routes__route-arrow">→</span>
-        <span class="routes__route-kw">${r.keywords}</span>
+        <span class="routes__route-kw">${escapeHtml(r.keywords)}</span>
       </div>
     `).join("");
   }
@@ -300,4 +309,3 @@ document.addEventListener("DOMContentLoaded", () => {
   observeReveals();
   runTerminalDemo();
 });
-

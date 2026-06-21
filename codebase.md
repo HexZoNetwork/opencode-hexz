@@ -1,21 +1,21 @@
 # Codebase Map
 
-Generated: 2026-06-20T18:12:49.332Z
+Generated: 2026-06-21T03:17:14.831Z
 
-Total source files: 1171
+Total source files: 1172
 
 ---
 
 ## dist/hexz-mimo.js
-- Lines: 904
-- Imports: `import { createRequire } from "node:module";`, `import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";`, `import { homedir } from "node:os";`, `import { isAbsolute, join, relative, resolve } from "node:path";`, `import { spawnSync } from "node:child_process";`
+- Lines: 258771
+- Imports: `import { createRequire } from "node:module";`, `import { createWriteStream } from "node:fs";`, `import * as http from "node:http";`, `import * as https from "node:https";`, `import { URL as URL2, urlToHttpOptions } from "node:url";`
 
 ## dist/hexz-wrapper.js
 - Lines: 7
 
 ## dist/hexz.js
-- Lines: 14284
-- Imports: `import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";`, `import { isAbsolute, join, relative, resolve } from "path";`, `import { homedir } from "os";`
+- Lines: 268951
+- Imports: `import NodeWebSocket from "ws";`, `import { createWriteStream } from "fs";`, `import * as http from "http";`, `import * as https from "https";`, `import { URL as URL2, urlToHttpOptions } from "url";`
 
 ## src/cybersecurity/skills-mukul/acquiring-disk-image-with-dd-and-dcfldd/scripts/agent.py
 - Lines: 182
@@ -3489,17 +3489,22 @@ Total source files: 1171
 - Lines: 257
 
 ## src/hexz-mimo.ts
-- Lines: 762
-- Imports: `import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"`, `import { homedir } from "node:os"`, `import { isAbsolute, join, relative, resolve } from "node:path"`, `import { spawnSync } from "node:child_process"`
+- Lines: 882
+- Imports: `import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"`, `import { homedir } from "node:os"`, `import { join, resolve } from "node:path"`, `import { spawnSync } from "node:child_process"`, `import { escapeHtml, isSafePackageName, isSafeWebUrl, parseGithubRepo, resolveProjectPath } from "./shared"`
 - Exports: `export const`, `export const`, `export const`
 
 ## src/hexz.ts
-- Lines: 1825
-- Imports: `import type { Plugin } from "@opencode-ai/plugin";`, `import { tool } from "@opencode-ai/plugin";`, `import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";`, `import { isAbsolute, join, relative, resolve } from "node:path";`, `import { homedir } from "node:os";`
-- Exports: `export const`, `export function`, `export function`
+- Lines: 1955
+- Imports: `import type { Plugin } from "@opencode-ai/plugin";`, `import { tool } from "@opencode-ai/plugin";`, `import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";`, `import { join, resolve } from "node:path";`, `import { homedir } from "node:os";`
+- Exports: `export const`, `export function`, `export const`
+
+## src/shared.ts
+- Lines: 50
+- Imports: `import { isAbsolute, relative, resolve } from "node:path";`
+- Exports: `export function`, `export function`, `export function`
 
 ## test-design.html
-- Lines: 56
+- Lines: 1
 
 ## test/dist/assets/index-D_nF9BJn.js
 - Lines: 37
@@ -3514,7 +3519,7 @@ Total source files: 1171
 - Lines: 115
 
 ## test/script.js
-- Lines: 306
+- Lines: 312
 
 ## test/style.css
 - Lines: 784
@@ -3524,5 +3529,5 @@ Total source files: 1171
 - Imports: `import { defineConfig } from "vite";`
 
 ## tests/hexz.test.ts
-- Lines: 52
-- Imports: `import { describe, expect, it } from "bun:test"`
+- Lines: 98
+- Imports: `import { afterEach, describe, expect, it } from "bun:test"`, `import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"`, `import { tmpdir } from "node:os"`, `import { join } from "node:path"`, `import { hexz_mkp } from "../src/hexz-mimo"`

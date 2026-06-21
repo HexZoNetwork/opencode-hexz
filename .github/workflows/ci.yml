@@ -26,6 +26,16 @@ jobs:
 
       - run: bun audit
 
+      - name: Semgrep
+        run: |
+          python3 -m pip install --user semgrep
+          "$HOME/.local/bin/semgrep" --config=p/owasp-top-ten --config=p/secrets --error .
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - run: bun run lint
 
       - run: bun run build

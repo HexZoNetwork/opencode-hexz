@@ -40,11 +40,12 @@
   },
   "dependencies": {
     "capture-website": "^5.1.0",
+    "npm-pkg": "^2.0.0",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.14",
+    "@biomejs/biome": "^2.5.0",
     "@opencode-ai/plugin": "^1.17.7",
-    "@biomejs/biome": "^2.5.0"
+    "@types/bun": "^1.3.14"
   }
 }

@@ -95,6 +95,7 @@ ${BOLD}Options:${RESET}
   -b, --both       Install globally and locally
   -mm, --mimo      Install for MiMo Code (.mimocode / ~/.config/mimocode)
   -y, --yes        Accept all defaults, no prompts
+  --install-bun    If bun is missing, install it with Bun's official install script
   -h, --help       Show this help
   -v, --version    Show plugin version
 
@@ -109,6 +110,7 @@ EOF
 
 MODE=""
 AUTO_YES=false
+INSTALL_BUN=false
 DEST=""
 RUNTIME="opencode"
 
@@ -119,6 +121,7 @@ while [ $# -gt 0 ]; do
     -b|--both)     MODE="both";    shift ;;
     -mm|--mimo)    RUNTIME="mimo"; shift ;;
     -y|--yes)      AUTO_YES=true;  shift ;;
+    --install-bun) INSTALL_BUN=true; shift ;;
     -h|--help)     usage; exit 0 ;;
     -v|--version)  grep '"version"' "$SCRIPT_DIR/package.json" | head -1; exit 0 ;;
     *)             fail "Unknown flag: $1"; usage; exit 1 ;;
@@ -134,7 +137,13 @@ preflight_bun() {
     ok "bun $(bun --version)"
     return 0
   fi
-  warn "bun not found. Installing..."
+  if [ "$INSTALL_BUN" = false ]; then
+    fail "bun not found."
+    echo "  Install Bun first: https://bun.sh/docs/installation"
+    echo "  Or rerun with --install-bun to use Bun's official remote install script."
+    exit 1
+  fi
+  warn "bun not found. Installing with Bun's official remote script..."
   if command -v curl &>/dev/null; then
     curl -fsSL https://bun.sh/install | bash
   elif command -v wget &>/dev/null; then
@@ -172,6 +181,30 @@ preflight_puppeteer() {
   echo "  Install: sudo apt install chromium-browser"
   echo "  Or: npx puppeteer browsers install chrome"
 }
+preflight_python_audit() {
+  if ! command -v python3 &>/dev/null && ! command -v python &>/dev/null; then
+    echo -e "  ${DIM}· python3 not found — skipping semgrep/pip-audit (install python3 for security scanning)${RESET}"
+    return 0
+  fi
+  local pip="pip3"
+  command -v pip3 &>/dev/null || pip="pip"
+  if ! command -v "$pip" &>/dev/null; then
+    echo -e "  ${DIM}· pip not found — skipping semgrep/pip-audit (install pip for security scanning)${RESET}"
+    return 0
+  fi
+  if command -v semgrep &>/dev/null; then
+    ok "semgrep $(semgrep --version 2>/dev/null || echo 'installed')"
+  else
+    echo -e "  ${DIM}  Installing semgrep via pip...${RESET}"
+    "$pip" install semgrep --quiet 2>/dev/null && ok "semgrep installed" || warn "semgrep install failed — hexz_scan static analysis unavailable"
+  fi
+  if command -v pip-audit &>/dev/null; then
+    ok "pip-audit installed"
+  else
+    echo -e "  ${DIM}  Installing pip-audit via pip...${RESET}"
+    "$pip" install pip-audit --quiet 2>/dev/null && ok "pip-audit installed" || warn "pip-audit install failed — hexz_scan dependency scanning unavailable"
+  fi
+}
 
 preflight_node() {
   if command -v node &>/dev/null; then
@@ -180,12 +213,36 @@ preflight_node() {
     echo -e "  ${DIM}· node not found (optional)${RESET}"
   fi
 }
+preflight_docker() {
+  if command -v docker &>/dev/null; then
+    local dv
+    dv=$(docker --version 2>/dev/null | head -1)
+    ok "docker ${dv:-detected}"
+    echo -e "  ${DIM}  Pulling searxng/searxng image (background)...${RESET}"
+    docker pull searxng/searxng &>/dev/null &
+  else
+    echo -e "  ${DIM}· docker not found, attempting auto-install...${RESET}"
+    if command -v curl &>/dev/null; then
+      curl -fsSL https://get.docker.com | sh &>/dev/null && ok "docker installed via get.docker.com" || warn "Docker auto-install failed — install manually: https://docs.docker.com/get-docker/"
+    elif command -v wget &>/dev/null; then
+      wget -qO- https://get.docker.com | sh &>/dev/null && ok "docker installed via get.docker.com" || warn "Docker auto-install failed — install manually: https://docs.docker.com/get-docker/"
+    else
+      warn "Docker auto-install skipped (no curl or wget). Install manually: https://docs.docker.com/get-docker/"
+    fi
+    if command -v docker &>/dev/null; then
+      echo -e "  ${DIM}  Pulling searxng/searxng image (background)...${RESET}"
+      docker pull searxng/searxng &>/dev/null &
+    fi
+  fi
+}
 
 section "Preflight"
 preflight_bun
 preflight_git
 preflight_node
 preflight_puppeteer
+preflight_python_audit
+preflight_docker
 
 section "Building"
 
@@ -270,6 +327,7 @@ install_to() {
 
   cp "$SCRIPT_DIR/dist/hexz.js" "$hexzdir/index.js"
   cp "$SCRIPT_DIR/src/hexz.ts" "$hexzdir/index.ts"
+  cp "$SCRIPT_DIR/src/shared.ts" "$hexzdir/shared.ts"
   [ -d "$SCRIPT_DIR/src/design" ] && cp -r "$SCRIPT_DIR/src/design" "$hexzdir/design"
   [ -d "$SCRIPT_DIR/src/cybersecurity" ] && cp -r "$SCRIPT_DIR/src/cybersecurity" "$hexzdir/cybersecurity"
 
@@ -364,6 +422,7 @@ EOF
   ok "$label"
   echo "    $hexzdir/index.ts"
   echo "    $hexzdir/index.js"
+  echo "    $hexzdir/shared.ts"
   echo "    $hexzdir/design/"
   echo "    $hexzdir/cybersecurity/"
   echo "    $plugdir/package.json"
@@ -372,7 +431,8 @@ EOF
 }
 
 install_mimo_to() {
-  local dest="$1" label="$2" toolsdir="$dest/tools"
+  local dest="$1" label="$2"
+  local toolsdir="$dest/tools"
 
   mkdir -p "$toolsdir" "$dest/commands"
 
@@ -532,4 +592,5 @@ echo -e "    ${CYAN}hexz_image${RESET}   Image OCR         ${CYAN}hexz_status${R
 echo -e "    ${CYAN}hexz_webss${RESET}   Web screenshots   ${CYAN}hexz_doctor${RESET}  Runtime check"
 echo -e "    ${CYAN}hexz_cyber${RESET}   769+ cyber skills ${CYAN}hexz_sim${RESET}     Sim sandbox"
 echo -e "    ${CYAN}hexz_mcp${RESET}     MCP servers       ${CYAN}hexz_codebase${RESET} Codebase map"
+echo -e "  ${DIM}  SearXNG auto-fallback active when DuckDuckGo rate-limits${RESET}"
 echo ""

@@ -1,0 +1,17 @@
+title = "opencode-hexz gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Bundled cybersecurity training examples use redacted/demo credentials."
+paths = [
+  '''src/cybersecurity/skills-mukul/.*''',
+]
+
+[[allowlists]]
+description = "Redaction tests and replacement strings are not secrets."
+regexes = [
+  '''REDACTED''',
+  '''-----BEGIN PRIVATE KEY-----''',
+]

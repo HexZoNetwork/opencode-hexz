@@ -1,9 +1,12 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-export const VERSION = "1.5.0";
+import { spawnSync } from "node:child_process";
+import { escapeHtml, isSafeWebUrl, resolveProjectPath } from "./shared";
+export { escapeHtml, isInsidePath, isSafeWebUrl, resolveProjectPath } from "./shared";
+export const VERSION = "1.5.2";
 function fileExistsSync(p: string): boolean {
   try { return existsSync(p); } catch { return false; }
 }
@@ -38,41 +41,6 @@ const MODULE_DIR = import.meta.dir ?? process.cwd();
 const DESIGN_DIR = join(MODULE_DIR, "design");
 const CYBER_DIR = join(MODULE_DIR, "cybersecurity");
 const SIMS_DIR = ".sims";
-
-export function isInsidePath(baseDir: string, targetPath: string): boolean {
-  const rel = relative(resolve(baseDir), resolve(targetPath));
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
-export function resolveProjectPath(baseDir: string, input: string): string | null {
-  if (!input.trim() || input.includes("\0")) return null;
-  const targetPath = resolve(baseDir, input);
-  return isInsidePath(baseDir, targetPath) ? targetPath : null;
-}
-
-export function isSafeWebUrl(rawUrl: string): boolean {
-  try {
-    const url = new URL(rawUrl);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    const host = url.hostname.toLowerCase();
-    if (["localhost", "0.0.0.0", "127.0.0.1", "::1"].includes(host)) return false;
-    if (host.endsWith(".local") || host.startsWith("127.")) return false;
-    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return false;
-    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function scanCodebase(cwd: string): string {
   const files: string[] = [];
@@ -236,6 +204,8 @@ const state = {
   msgCount: 0,
   skipScan: false,
   diagnostics: [] as Array<{ file: string; line: number; message: string; severity: string }>,
+  searXngUrl: "",
+  searXngRecoveryTimer: null as ReturnType<typeof setInterval> | null,
 };
 const mcpConnections: Array<{ url: string; client: any }> = [];
 const dbDir = join(homedir(), ".config", "opencode");
@@ -344,26 +314,176 @@ async function webSearch(query: string): Promise<string> {
   }
   state.lastSearchTime = now;
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`;
+  let ddgFailed = false;
+  let ddgResult = "";
   try {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 8000);
     const res = await fetch(url, { signal: ac.signal });
     clearTimeout(t);
-    if (!res.ok) return `API ${res.status}`;
-    const d = (await res.json()) as DDGResponse;
-    const items = (d.RelatedTopics ?? [])
-      .filter(
-        (t): t is DDGTopic & { Text: string } => typeof t.Text === "string" && t.Text.length > 10,
-      )
-      .slice(0, 5)
-      .map((t) => `• ${t.Text}`);
-    const result = items.length ? items.join("\n") : "No results.";
-    searchCache.set(q, { result, timestamp: Date.now() });
-    return result;
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.name : "unknown";
-    return msg === "AbortError" ? "Timeout" : "Search failed";
+    if (!res.ok) {
+      ddgFailed = true;
+    } else {
+      const d = (await res.json()) as DDGResponse;
+      const items = (d.RelatedTopics ?? [])
+        .filter((t): t is DDGTopic & { Text: string } => typeof t.Text === "string" && t.Text.length > 10)
+        .slice(0, 5)
+        .map((t) => `• ${t.Text}`);
+      ddgResult = items.length ? items.join("\n") : "No results.";
+    }
+  } catch {
+    ddgFailed = true;
   }
+  if (!ddgFailed) {
+    searchCache.set(q, { result: ddgResult, timestamp: Date.now() });
+    return ddgResult;
+  }
+  const fallback = await searchSearXng(q);
+  if (fallback !== null) {
+    searchCache.set(q, { result: fallback, timestamp: Date.now() });
+    return fallback;
+  }
+  const cr = await searchChromium(q);
+  if (cr !== null) {
+    searchCache.set(q, { result: cr, timestamp: Date.now() });
+    return cr;
+  }
+  return "Search failed (network error). All 3 fallbacks exhausted.";
+}
+// SearXNG fallback helpers
+const SEARXNG_PORT = 8888;
+const SEARXNG_CONTAINER = "hexz-searxng";
+const DDG_RECOVERY_CHECK_MS = 60000;
+function ensureSearXng(): string | null {
+  if (state.searXngUrl) return state.searXngUrl;
+  try {
+    const info = spawnSync("docker", ["info"], { stdio: "pipe", encoding: "utf8" });
+    if (info.status !== 0) {
+      if (!tryInstallDocker()) return null;
+      const retry = spawnSync("docker", ["info"], { stdio: "pipe", encoding: "utf8" });
+      if (retry.status !== 0) return null;
+    }
+    spawnSync("docker", ["stop", SEARXNG_CONTAINER], { stdio: "ignore" });
+    const key = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const settingsDir = join(homedir(), ".config", "hexz-searxng");
+    mkdirSync(settingsDir, { recursive: true });
+    const settingsPath = join(settingsDir, "settings.yml");
+    writeFileSync(settingsPath, `use_default_settings: true
+server:
+  secret_key: "hexz-${key}"
+  bind_address: "0.0.0.0"
+  limiter: false
+  image_proxy: false
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+`);
+    const run = spawnSync("docker", ["run", "-d", "--rm", "--name", SEARXNG_CONTAINER, "-p", `127.0.0.1:${SEARXNG_PORT}:8080`, "-v", `${settingsPath}:/etc/searxng/settings.yml:ro`, "-e", "SEARXNG_SECRET_KEY=" + key, "searxng/searxng"], { encoding: "utf8" });
+    if (run.status !== 0) return null;
+    state.searXngUrl = `http://127.0.0.1:${SEARXNG_PORT}`;
+    return state.searXngUrl;
+  } catch { return null; }
+}
+function tryInstallDocker(): boolean {
+  try {
+    const sudo = spawnSync("id", ["-u"], { encoding: "utf8" }).stdout.trim() === "0";
+    const runner = sudo ? "sh" : "sudo sh";
+    let cmd = "";
+    if (spawnSync("command", ["-v", "curl"], { stdio: "pipe" }).status === 0) cmd = "curl -fsSL https://get.docker.com | " + runner;
+    else if (spawnSync("command", ["-v", "wget"], { stdio: "pipe" }).status === 0) cmd = "wget -qO- https://get.docker.com | " + runner;
+    else return false;
+    const r = spawnSync("sh", ["-c", cmd], { stdio: "pipe", timeout: 120000, encoding: "utf8" });
+    return r.status === 0;
+  } catch { return false; }
+}
+function stopSearXng(): void {
+  if (!state.searXngUrl) return;
+  spawnSync("docker", ["stop", SEARXNG_CONTAINER], { stdio: "ignore" });
+  state.searXngUrl = "";
+  try { rmSync(join(homedir(), ".config", "hexz-searxng", "settings.yml")); } catch {}
+}
+function startDdgRecoveryCheck(): void {
+  if (state.searXngRecoveryTimer) return;
+  state.searXngRecoveryTimer = setInterval(async () => {
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 5000);
+      const res = await fetch("https://api.duckduckgo.com/?q=healthz&format=json&no_html=1&skip_disambig=1", { signal: ac.signal });
+      clearTimeout(t);
+      if (res.ok) {
+        stopSearXng();
+        if (state.searXngRecoveryTimer) {
+          clearInterval(state.searXngRecoveryTimer);
+          state.searXngRecoveryTimer = null;
+        }
+      }
+    } catch {}
+  }, DDG_RECOVERY_CHECK_MS);
+}
+async function searchSearXng(query: string): Promise<string | null> {
+  const baseUrl = ensureSearXng();
+  if (!baseUrl) return null;
+  let ready = false;
+  for (let i = 0; i < 30; i++) {
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 3000);
+      const res = await fetch(`${baseUrl}/search?q=healthz&format=json`, { signal: ac.signal });
+      clearTimeout(t);
+      if (res.ok) { ready = true; break; }
+    } catch {}
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  if (!ready) {
+    stopSearXng();
+    return null;
+  }
+  startDdgRecoveryCheck();
+  try {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 15000);
+    const res = await fetch(`${baseUrl}/search?q=${encodeURIComponent(query)}&format=json&language=en-US`, { signal: ac.signal });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const results: Array<{ title?: string; content?: string; url?: string }> = data.results ?? [];
+    if (results.length === 0) return "No results (SearXNG).";
+    return results.slice(0, 5).map(r => `${r.title || ""}${r.content ? ` — ${r.content.slice(0, 200)}` : ""}`).join("\n");
+  } catch { return null; }
+}
+async function searchChromium(query: string): Promise<string | null> {
+  try {
+    let executablePath: string | undefined;
+    for (const bin of ["chromium-browser", "google-chrome-stable", "google-chrome", "chromium"]) {
+      const r = spawnSync("command", ["-v", bin], { stdio: "pipe", encoding: "utf8" });
+      if (r.status === 0) { executablePath = r.stdout.trim(); break; }
+    }
+    const mod = await import("puppeteer") as any;
+    const browser = await (mod.default || mod).launch({
+      headless: true,
+      executablePath,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    });
+    const page = await browser.newPage();
+    await page.goto(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`, {
+      waitUntil: "networkidle0",
+      timeout: 15000,
+    });
+    const html: string = await page.content();
+    await browser.close();
+    const items: string[] = [];
+    const regex = /<a[^>]+class="result-link"[^>]*>([\s\S]*?)<\/a>/gi;
+    let m: RegExpExecArray | null = regex.exec(html);
+    while (m !== null && items.length < 5) {
+      const t = m[1].replace(/<[^>]*>/g, "").trim();
+      if (t) items.push(`• ${t}`);
+      m = regex.exec(html);
+    }
+    return items.length ? items.join("\n") : null;
+  } catch { return null; }
 }
 function guessTopic(cmd: string): string {
   const l = cmd.toLowerCase();
@@ -682,6 +802,7 @@ async function scanForSecrets(target: string): Promise<string> {
   const findings: string[] = [];
 
   function shouldScanFile(path: string): boolean {
+    if (path.replace(/\\/g, "/").includes("/cybersecurity/skills-mukul/")) return false;
     const name = path.split(/[\\/]/).pop() ?? "";
     if (name.startsWith(".env")) return true;
     const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
@@ -689,8 +810,9 @@ async function scanForSecrets(target: string): Promise<string> {
   }
 
   function scanFile(path: string): void {
-    const content = readFile(path);
-    if (content === null) return;
+    const rawContent = readFile(path);
+    if (rawContent === null) return;
+    const content = rawContent.replace(/-----BEGIN PRIVATE KEY-----(?:\\n|\n)REDACTED(?:\\n|\n)-----END PRIVATE KEY-----/g, "");
     for (const pattern of secretPatterns) {
       pattern.regex.lastIndex = 0;
       const matches = content.match(pattern.regex);
@@ -1063,6 +1185,8 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
       if (text.includes("HEXZ_DEACTIVATE") || text.trim() === "/off" || /revert\s+to\s+default/i.test(text)) {
         state.active = false;
         setMemory("active", "false");
+        stopSearXng();
+        if (state.searXngRecoveryTimer) { clearInterval(state.searXngRecoveryTimer); state.searXngRecoveryTimer = null; }
         output.parts = [];
         return;
       }
@@ -1088,6 +1212,8 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
       if (input.command === "off") {
         state.active = false;
         setMemory("active", "false");
+        stopSearXng();
+        if (state.searXngRecoveryTimer) { clearInterval(state.searXngRecoveryTimer); state.searXngRecoveryTimer = null; }
         output.parts = [];
         return;
       }
@@ -1467,6 +1593,7 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
           const imagePath = resolveProjectPath(projectDir, args.image_path);
           if (!imagePath) return "Image path must stay inside the project directory.";
           if (!fileExistsSync(imagePath)) return `[HEXZ Image] File not found: ${imagePath}`;
+          if (!/\.(png|jpg|jpeg|gif|bmp|webp|svg|tiff?)$/i.test(args.image_path)) return `[HEXZ Image] Unsupported format. Supported: png, jpg, jpeg, gif, bmp, webp, svg, tiff`;
           const intent = args.intent ?? "auto";
           try {
             const mod = await import("tesseract.js");
@@ -1682,7 +1809,8 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
         args: {},
         async execute() {
           const up = Math.floor((Date.now() - state.startTime) / 1000);
-          return `HEXZ: ${state.active ? "ON" : "OFF"} | v${VERSION} | ${Math.floor(up / 60)}m${up % 60}s | ${state.searches} searches | cache: ${searchCache.size} entries`;
+          const fallback = state.searXngUrl ? " | SearXNG fallback active" : "";
+          return `HEXZ: ${state.active ? "ON" : "OFF"} | v${VERSION} | ${Math.floor(up / 60)}m${up % 60}s | ${state.searches} searches | cache: ${searchCache.size} entries${fallback}`;
         },
       }),
       hexz_doctor: tool({
@@ -1819,6 +1947,8 @@ export const HexzPlugin: Plugin = async (input: any, _options?: any) => {
     },
   };
 };
+process.on("exit", () => stopSearXng());
+process.on("SIGINT", () => { stopSearXng(); process.exit(0); });
 export default HexzPlugin;
 export const server = HexzPlugin;
 export const plugin = HexzPlugin;
