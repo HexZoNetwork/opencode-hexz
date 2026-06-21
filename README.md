@@ -1,16 +1,28 @@
-<div align="center">
-![HEXZ](https://raw.githubusercontent.com/HexZoNetwork/opencode-hexz/main/assets/El.png)
-  
-# HEXZ
-### OpenCode & MiMo Code Upgrade Layer
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HexZoNetwork/opencode-hexz/main/assets/El.png" width="180" />
+</p>
+<h1 align="center">HEXZ</h1>
 
-[![License](https://img.shields.io/badge/license-MIT-brightgreen?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.5.2-blueviolet?style=flat-square)](https://github.com/hexzonetwork/opencode-hexz)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-orange?style=flat-square)](#)
-[![Bun](https://img.shields.io/badge/runtime-bun-fbf0df?style=flat-square&logo=bun&logoColor=black)](https://bun.sh)
+<p align="center">
+  <b>OpenCode & MiMo Code Upgrade Layer</b>
+</p>
 
-A plugin for [OpenCode](https://opencode.ai), [MiMo Code](https://mimo.xiaomi.com/mimocode/start), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), and [OpenAI Codex](https://openai.com/index/codex) — anti-slop enforcement, 769+ cybersecurity skills, design scaffolding, web search, OCR, screenshots, MCP, persistent memory, and PR automation.
-</div>
+<p align="center">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-brightgreen?style=flat-square">
+  </a>
+  <a href="https://github.com/HexZoNetwork/opencode-hexz">
+    <img src="https://img.shields.io/badge/version-v1.5.2-blueviolet?style=flat-square">
+  </a>
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-orange?style=flat-square">
+  <a href="https://bun.sh">
+    <img src="https://img.shields.io/badge/runtime-bun-fbf0df?style=flat-square&logo=bun&logoColor=black">
+  </a>
+</p>
+
+<p align="center">
+A plugin for OpenCode, MiMo Code, Claude Code, and OpenAI Codex — anti-slop enforcement, 769+ cybersecurity skills, design scaffolding, web search, OCR, screenshots, MCP, persistent memory, and PR automation.
+</p>
 
 > [!IMPORTANT]
 > **Claude Code** and **Codex** support is **untested and experimental**. OpenCode remains the primary target — contributions welcome.
