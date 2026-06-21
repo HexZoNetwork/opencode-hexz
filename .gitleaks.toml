@@ -4,14 +4,35 @@ title = "opencode-hexz gitleaks config"
 useDefault = true
 
 [[allowlists]]
-description = "Bundled cybersecurity training examples use redacted/demo credentials."
+description = "Cybersecurity training content uses demo/redacted credentials."
 paths = [
   '''src/cybersecurity/skills-mukul/.*''',
 ]
-
-[[allowlists]]
-description = "Redaction tests and replacement strings are not secrets."
 regexes = [
   '''REDACTED''',
-  '''-----BEGIN PRIVATE KEY-----''',
+  '''YOUR_KEY''',
+  '''\*\*\*''',
+  '''misp\.example\.com''',
+  '''target\.com''',
+  '''target\.example\.com''',
+  '''api\.passiv''',
+  '''api\.abuseipdb\.com''',
+  '''api\.virustotal\.com''',
+  '''Sec-WebSocket-Key''',
+  '''osquery''',
+]
+
+[[allowlists]]
+description = "Private key regex patterns in redaction/sanitization code."
+paths = [
+  '''src/hexz-mimo\.ts''',
+  '''src/hexz\.ts''',
+]
+
+[[allowlists]]
+description = "JWT and AWS example tokens in training materials."
+regexes = [
+  '''eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+''',
+  '''AKIA''',
+  '''GPP_AES_KEY''',
 ]

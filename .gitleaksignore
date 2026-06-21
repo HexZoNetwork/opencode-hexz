@@ -1,0 +1,5 @@
+# Cybersecurity training examples use demo/redacted credentials.
+*:src/cybersecurity/skills-mukul/*:*:*
+# Private key regex sanitizers, not real secrets
+*:src/hexz-mimo.ts:private-key:*
+*:src/hexz.ts:private-key:*
