@@ -165,7 +165,7 @@ class TLSAuditor:
             import http.client
             conn = http.client.HTTPSConnection(
                 self.host, self.port, timeout=self.timeout,
-                context=ssl._create_unverified_context()
+                context=ssl.create_default_context()
             )
             conn.request("HEAD", "/")
             response = conn.getresponse()
