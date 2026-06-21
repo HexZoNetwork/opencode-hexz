@@ -1,5 +1,6 @@
 <div align="center">
-
+![HEXZ](https://raw.githubusercontent.com/HexZoNetwork/opencode-hexz/main/assets/El.png)
+  
 # HEXZ
 ### OpenCode & MiMo Code Upgrade Layer
 
@@ -311,7 +312,8 @@ rm -f ~/.config/mimocode/tools/hexz.ts
 ---
 
 <div align="center">
-
+Made With ❤ By <b>HexZo Network</b> Supported by <b>EL7 Team</b>
+  
 **[MIT License](LICENSE)** · [OpenCode](https://opencode.ai) · [MiMo Code](https://mimo.xiaomi.com/mimocode/start) · [Report Issues](https://github.com/hexzonetwork/opencode-hexz/issues) · [Contribute](CONTRIBUTING.md)
 
 </div>
