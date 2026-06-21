@@ -3,15 +3,19 @@ title = "opencode-hexz gitleaks config"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Cybersecurity training content uses demo/redacted credentials."
+[allowlist]
 paths = [
   '''src/cybersecurity/skills-mukul/.*''',
+  '''src/hexz-mimo\.ts''',
+  '''src/hexz\.ts''',
 ]
 regexes = [
   '''REDACTED''',
   '''YOUR_KEY''',
-  '''\*\*\*''',
+  '''YOUR_API_KEY''',
+  '''YOUR_VT_API_KEY''',
+  '''MISP_KEY''',
+  '''GPP_AES_KEY''',
   '''misp\.example\.com''',
   '''target\.com''',
   '''target\.example\.com''',
@@ -20,19 +24,8 @@ regexes = [
   '''api\.virustotal\.com''',
   '''Sec-WebSocket-Key''',
   '''osquery''',
-]
-
-[[allowlists]]
-description = "Private key regex patterns in redaction/sanitization code."
-paths = [
-  '''src/hexz-mimo\.ts''',
-  '''src/hexz\.ts''',
-]
-
-[[allowlists]]
-description = "JWT and AWS example tokens in training materials."
-regexes = [
-  '''eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+''',
   '''AKIA''',
-  '''GPP_AES_KEY''',
+  '''ssl_verify''',
+  '''user:key''',
+  '''change(?:it|me)''',
 ]

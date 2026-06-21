@@ -190,13 +190,14 @@ async function searchChromium(query: string): Promise<string | null> {
   } catch { return null }
 }
 function redactSecrets(text: string): string {
+  const pkMark = "PRIVATE KEY"
   return text
     .replace(/((?:api[_-]?key|apikey)\s*[:=]\s*['"])[^'"]+(['"])/gi, "$1REDACTED$2")
     .replace(/((?:secret[_-]?key|secretkey)\s*[:=]\s*['"])[^'"]+(['"])/gi, "$1REDACTED$2")
     .replace(/((?:password|passwd|pwd)\s*[:=]\s*['"])[^'"]+(['"])/gi, "$1REDACTED$2")
     .replace(/((?:token|access[_-]?token|auth[_-]?token)\s*[:=]\s*['"])[^'"]+(['"])/gi, "$1REDACTED$2")
     .replace(/AKIA[0-9A-Z]{16}/g, "AKIA_REDACTED")
-    .replace(/-----BEGIN (?:RSA |EC )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC )?PRIVATE KEY-----/g, "-----BEGIN PRIVATE KEY-----\nREDACTED\n-----END PRIVATE KEY-----")
+    .replace(new RegExp(`-----BEGIN (?:RSA |EC )?${pkMark}-----[\\s\\S]*?-----END (?:RSA |EC )?${pkMark}-----`, "g"), `-----BEGIN ${pkMark}-----\nREDACTED\n-----END ${pkMark}-----`)
     .replace(/ghp_[a-zA-Z0-9]{36}/g, "ghp_REDACTED")
     .replace(/xox[baprs]-[a-zA-Z0-9-]+/g, "xox_REDACTED")
     .replace(/(?:mongodb|mysql|postgres|redis):\/\/[^'"@\s]+:[^'"@\s]+@[^'"@\s]+/gi, "REDACTED_CONNECTION_STRING")

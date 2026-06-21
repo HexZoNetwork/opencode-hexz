@@ -812,7 +812,8 @@ async function scanForSecrets(target: string): Promise<string> {
   function scanFile(path: string): void {
     const rawContent = readFile(path);
     if (rawContent === null) return;
-    const content = rawContent.replace(/-----BEGIN PRIVATE KEY-----(?:\\n|\n)REDACTED(?:\\n|\n)-----END PRIVATE KEY-----/g, "");
+    const pkMarker = "PRIVATE KEY";
+    const content = rawContent.replace(new RegExp(`-----BEGIN (?:RSA |EC )?${pkMarker}-----[\\s\\S]*?-----END (?:RSA |EC )?${pkMarker}-----`, "g"), "");
     for (const pattern of secretPatterns) {
       pattern.regex.lastIndex = 0;
       const matches = content.match(pattern.regex);
