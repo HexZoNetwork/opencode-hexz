@@ -4,7 +4,7 @@
 ### OpenCode & MiMo Code Upgrade Layer
 
 [![License](https://img.shields.io/badge/license-MIT-brightgreen?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.5.0-blueviolet?style=flat-square)](https://github.com/hexzonetwork/opencode-hexz/releases)
+[![Version](https://img.shields.io/badge/version-v1.5.2-blueviolet?style=flat-square)](https://github.com/hexzonetwork/opencode-hexz)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-orange?style=flat-square)](#)
 [![Bun](https://img.shields.io/badge/runtime-bun-fbf0df?style=flat-square&logo=bun&logoColor=black)](https://bun.sh)
 
