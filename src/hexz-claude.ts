@@ -570,7 +570,7 @@ export const hexz_design = tool({
     save: tool.schema.string().optional(),
   },
   async execute(args: any) {
-    const sections = (args.craft_sections ?? "typography,color,anti-ai-slop").split(",").map(s => s.trim()).filter(Boolean)
+    const sections = (args.craft_sections ?? "typography,color,anti-ai-slop").split(",").map((s: string) => s.trim()).filter(Boolean)
     const lines: string[] = [`[HEXZ Design] v${VERSION}`, `Brief: ${args.brief}`, `Surface: ${args.surface ?? "web"}`, ""]
     for (const section of sections) {
       const content = readCraftSection(DESIGN_DIR, section)
@@ -641,14 +641,14 @@ export const hexz_webss = tool({
       const mod = await import("capture-website")
       const cw = (mod as any).default || mod
       const opts: Record<string, unknown> = {}
-      if (args.width) opts.width = Number(args.width)
-      if (args.height) opts.height = Number(args.height)
-      if (args.fullPage) opts.fullPage = args.fullPage === true || args.fullPage === "true"
-      if (args.type) opts.type = args.type
-      if (args.quality) opts.quality = Number(args.quality)
-      if (args.emulateDevice && args.emulateDevice !== "none") opts.emulateDevice = args.emulateDevice
-      if (args.css) opts.css = args.css
-      if (args.inputType) opts.inputType = args.inputType
+      if (args.width) opts['width'] = Number(args.width)
+      if (args.height) opts['height'] = Number(args.height)
+      if (args.fullPage) opts['fullPage'] = args.fullPage === true || args.fullPage === "true"
+      if (args.type) opts['type'] = args.type
+      if (args.quality) opts['quality'] = Number(args.quality)
+      if (args.emulateDevice && args.emulateDevice !== "none") opts['emulateDevice'] = args.emulateDevice
+      if (args.css) opts['css'] = args.css
+      if (args.inputType) opts['inputType'] = args.inputType
       if (args.output) {
         const outPath = resolveProjectPath(process.cwd(), args.output)
         if (!outPath) return "Output path must stay inside the project directory."
