@@ -28,7 +28,10 @@ section() {
 banner() {
   local runtime="$1"
   local sub
-  if [ "$runtime" = "mimo" ]; then sub="MiMo Code"; else sub="OpenCode"; fi
+  if [ "$runtime" = "mimo" ]; then sub="MiMo Code"
+  elif [ "$runtime" = "codex" ]; then sub="Codex"
+  elif [ "$runtime" = "claude" ]; then sub="Claude Code"
+  else sub="OpenCode"; fi
 
   echo ""
   if [ "$HAS_TTY" = true ]; then
@@ -67,6 +70,8 @@ ${BOLD}Options:${RESET}
   -g, --global   Remove global install only
   -p, --project  Remove project install only
   -mm, --mimo    Remove MiMo Code install instead of OpenCode install
+  -cx, --codex   Remove Codex install
+  -cc, --claude  Remove Claude Code install
   -h, --help     Show this help
 EOF
 }
@@ -81,6 +86,8 @@ while [ $# -gt 0 ]; do
     -g|--global)   TARGET="global"; shift ;;
     -p|--project)  TARGET="project"; shift ;;
     -mm|--mimo)    RUNTIME="mimo"; shift ;;
+    -cx|--codex)   RUNTIME="codex"; shift ;;
+    -cc|--claude)  RUNTIME="claude"; shift ;;
     -h|--help)     usage; exit 0 ;;
     *)             fail "Unknown: $1"; usage; exit 1 ;;
   esac
@@ -250,6 +257,46 @@ remove_mimo_global() {
   removed=1
 }
 
+remove_codex_project() {
+  local dir=".codex-plugin"
+  [ -d "$dir" ] || { warn "No Codex project install found"; return 0; }
+  if [ "$FORCE" = false ]; then
+    read -rp "  Remove Codex project files from $dir/? [y/N]: " c
+    [[ ! "$c" =~ ^[Yy]$ ]] && echo -e "  ${YELLOW}Skipped${RESET}" && return 0
+  fi
+  rm -rf "$dir" && ok "Removed Codex project install" && removed=1
+}
+
+remove_codex_global() {
+  local dir="$HOME/.config/codex"
+  [ -d "$dir" ] || { warn "No Codex global install found"; return 0; }
+  if [ "$FORCE" = false ]; then
+    read -rp "  Remove Codex global files from $dir/? [y/N]: " c
+    [[ ! "$c" =~ ^[Yy]$ ]] && echo -e "  ${YELLOW}Skipped${RESET}" && return 0
+  fi
+  rm -rf "$dir" && ok "Removed Codex global install" && removed=1
+}
+
+remove_claude_project() {
+  local dir=".claude-plugin"
+  [ -d "$dir" ] || { warn "No Claude Code project install found"; return 0; }
+  if [ "$FORCE" = false ]; then
+    read -rp "  Remove Claude Code project files from $dir/? [y/N]: " c
+    [[ ! "$c" =~ ^[Yy]$ ]] && echo -e "  ${YELLOW}Skipped${RESET}" && return 0
+  fi
+  rm -rf "$dir" && ok "Removed Claude Code project install" && removed=1
+}
+
+remove_claude_global() {
+  local dir="$HOME/.config/claude"
+  [ -d "$dir" ] || { warn "No Claude Code global install found"; return 0; }
+  if [ "$FORCE" = false ]; then
+    read -rp "  Remove Claude Code global files from $dir/? [y/N]: " c
+    [[ ! "$c" =~ ^[Yy]$ ]] && echo -e "  ${YELLOW}Skipped${RESET}" && return 0
+  fi
+  rm -rf "$dir" && ok "Removed Claude Code global install" && removed=1
+}
+
 section "Removing"
 stop_searxng
 
@@ -258,6 +305,18 @@ if [ "$RUNTIME" = "mimo" ]; then
     all)     remove_mimo_project; remove_mimo_global ;;
     project) remove_mimo_project ;;
     global)  remove_mimo_global ;;
+  esac
+elif [ "$RUNTIME" = "codex" ]; then
+  case "$TARGET" in
+    all)     remove_codex_project; remove_codex_global ;;
+    project) remove_codex_project ;;
+    global)  remove_codex_global ;;
+  esac
+elif [ "$RUNTIME" = "claude" ]; then
+  case "$TARGET" in
+    all)     remove_claude_project; remove_claude_global ;;
+    project) remove_claude_project ;;
+    global)  remove_claude_global ;;
   esac
 else
   case "$TARGET" in
@@ -272,6 +331,10 @@ if [ "$removed" -eq 1 ]; then
   echo -e "  ${GREEN}${BOLD}HEXZ removed!${RESET}"
   if [ "$RUNTIME" = "mimo" ]; then
     echo "  Restart mimo / MiMo Code."
+  elif [ "$RUNTIME" = "codex" ]; then
+    echo "  Restart Codex."
+  elif [ "$RUNTIME" = "claude" ]; then
+    echo "  Restart Claude Code."
   else
     echo "  Restart opencode."
   fi

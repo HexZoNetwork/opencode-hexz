@@ -52,6 +52,10 @@ banner() {
   local sub
   if [ "$runtime" = "mimo" ]; then
     sub="MiMo Code"
+  elif [ "$runtime" = "codex" ]; then
+    sub="OpenAI Codex"
+  elif [ "$runtime" = "claude" ]; then
+    sub="Claude Code"
   else
     sub="OpenCode"
   fi
@@ -84,7 +88,7 @@ banner() {
 
 usage() {
   cat <<EOF
-${BOLD}HEXZ — OpenCode & MiMo Code Upgrade Layer${RESET}
+${BOLD}HEXZ — OpenCode, Codex, Claude Code & MiMo Code Upgrade Layer${RESET}
 
 ${BOLD}Usage:${RESET}
   ./install.sh [OPTIONS] [DIRECTORY]
@@ -94,6 +98,8 @@ ${BOLD}Options:${RESET}
   -p, --project    Install to ./.opencode/ only (default)
   -b, --both       Install globally and locally
   -mm, --mimo      Install for MiMo Code (.mimocode / ~/.config/mimocode)
+  -cx, --codex     Install for OpenAI Codex (.codex-plugin/)
+  -cc, --claude    Install for Claude Code (.claude-plugin/)
   -y, --yes        Accept all defaults, no prompts
   --install-bun    If bun is missing, install it with Bun's official install script
   -h, --help       Show this help
@@ -102,12 +108,14 @@ ${BOLD}Options:${RESET}
 ${BOLD}Examples:${RESET}
   ./install.sh
   ./install.sh -g
-  ./install.sh --mimo -g
+  ./install.sh --codex -g
+  ./install.sh --claude -g
   ./install.sh /my/project -y
   ./install.sh -b
 EOF
 }
 
+VERSION=$(grep '"version"' "$SCRIPT_DIR/package.json" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
 MODE=""
 AUTO_YES=false
 INSTALL_BUN=false
@@ -120,6 +128,8 @@ while [ $# -gt 0 ]; do
     -p|--project)  MODE="project"; shift ;;
     -b|--both)     MODE="both";    shift ;;
     -mm|--mimo)    RUNTIME="mimo"; shift ;;
+    -cx|--codex)   RUNTIME="codex"; shift ;;
+    -cc|--claude)  RUNTIME="claude"; shift ;;
     -y|--yes)      AUTO_YES=true;  shift ;;
     --install-bun) INSTALL_BUN=true; shift ;;
     -h|--help)     usage; exit 0 ;;
@@ -293,6 +303,14 @@ if [ "$RUNTIME" = "mimo" ] && [ ! -f "$SCRIPT_DIR/dist/hexz-mimo.js" ]; then
   fail "dist/hexz-mimo.js not found — MiMo adapter not built"
   exit 1
 fi
+if [ "$RUNTIME" = "codex" ] && [ ! -f "$SCRIPT_DIR/dist/hexz-codex.js" ]; then
+  fail "dist/hexz-codex.js not found — Codex adapter not built"
+  exit 1
+fi
+if [ "$RUNTIME" = "claude" ] && [ ! -f "$SCRIPT_DIR/dist/hexz-claude.js" ]; then
+  fail "dist/hexz-claude.js not found — Claude adapter not built"
+  exit 1
+fi
 step=$((step + 1))
 ok "All checks passed"
 progress $step $total
@@ -303,8 +321,16 @@ if [ -z "$MODE" ]; then
     MODE="project"
   else
     section "Target"
-    echo "  1) Project-level  →  ./.opencode/ (or .mimocode/)"
-    echo "  2) Global          →  ~/.config/opencode/"
+    local dir_label=".opencode/"
+    if [ "$RUNTIME" = "mimo" ]; then dir_label=".mimocode/"; fi
+    if [ "$RUNTIME" = "codex" ]; then dir_label=".codex-plugin/"; fi
+    if [ "$RUNTIME" = "claude" ]; then dir_label=".claude-plugin/"; fi
+    local global_label="~/.config/opencode/"
+    if [ "$RUNTIME" = "mimo" ]; then global_label="~/.config/mimocode/"; fi
+    if [ "$RUNTIME" = "codex" ]; then global_label="~/.config/codex/"; fi
+    if [ "$RUNTIME" = "claude" ]; then global_label="~/.config/claude/"; fi
+    echo "  1) Project-level  →  ./${dir_label}"
+    echo "  2) Global          →  ${global_label}"
     echo "  3) Both"
     echo ""
     read -rp "  Choose [1-3] (default: 1): " choice
@@ -430,6 +456,205 @@ EOF
   echo "    $dest/commands/{active,off,models}.md"
 }
 
+install_codex_to() {
+  local dest="$1" label="$2"
+  local skills_dir="$dest/skills"
+  local hooks_dir="$dest/hooks"
+
+  mkdir -p "$skills_dir" "$hooks_dir"
+
+  cat > "$dest/plugin.json" << EOF
+{
+  "name": "hexz",
+  "version": "$VERSION",
+  "description": "HEXZ — Anti-slop, security scanning, design scaffolds, web search, image handling, plugin marketplace.",
+  "skills": "./skills/"
+}
+EOF
+
+  cat > "$hooks_dir/hooks.json" << 'EOF'
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'which biome >/dev/null 2>&1 && biome format --write \"${FILE_PATH}\" 2>/dev/null || which prettier >/dev/null 2>&1 && prettier --write \"${FILE_PATH}\" 2>/dev/null || true'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'echo \"${ARGS}\" | grep -qE \"rm (-rf| -fr)|dd if=|mkfs\" > /dev/null && echo \"[HEXZ] Destructive command detected. Create a simulation first with: hexz_sim(name=..., plan=...)\" || true'"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+  declare -A SKILL_DESCS
+  SKILL_DESCS=( \
+    ["hexz_search"]="Web search via DuckDuckGo with SearXNG/Chromium fallbacks" \
+    ["hexz_scan"]="Security audit: injection, XSS, secrets, dependency vulns, auth, crypto" \
+    ["hexz_design"]="Generate HTML/CSS design scaffolds from a brief with craft rules" \
+    ["hexz_image"]="Analyze images via OCR: screenshots, error messages, diagrams" \
+    ["hexz_webss"]="Capture website screenshots via Puppeteer" \
+    ["hexz_mcp"]="MCP server management for DB, filesystem, and API access" \
+    ["hexz_memory"]="Persistent agent memory across sessions" \
+    ["hexz_pr"]="Git PR workflow with status, diff, and creation" \
+    ["hexz_mkp"]="Plugin/skill marketplace from GitHub or npm" \
+    ["hexz_status"]="Show HEXZ status, uptime, search count" \
+    ["hexz_sim"]="Simulation sandbox for safe destructive actions" \
+    ["hexz_codebase"]="Scan project and generate codebase.md" \
+    ["hexz_cyber"]="Cybersecurity skills across 15 domains" \
+    ["hexz_doctor"]="Health check for runtime, scanners, browser, git" \
+    ["active"]="Engage HEXZ upgrade layer" \
+    ["off"]="Revert to default behavior" \
+  )
+
+  for skill_name in "${!SKILL_DESCS[@]}"; do
+    mkdir -p "$skills_dir/$skill_name"
+    cat > "$skills_dir/$skill_name/SKILL.md" << SKILLEOF
+---
+name: $skill_name
+description: ${SKILL_DESCS[$skill_name]}
+---
+
+${SKILL_DESCS[$skill_name]}
+
+HEXZ v$VERSION — https://github.com/hexzonetwork/opencode-hexz
+SKILLEOF
+  done
+
+  ok "$label"
+  echo "    $dest/plugin.json (manifest)"
+  echo "    $hooks_dir/hooks.json (hooks)"
+  for s in "${!SKILL_DESCS[@]}"; do echo "    $skills_dir/$s/SKILL.md"; done
+}
+
+install_claude_to() {
+  local dest="$1" label="$2"
+  local skills_dir="$dest/skills"
+  local hooks_dir="$dest/hooks"
+  local agents_dir="$dest/agents"
+
+  mkdir -p "$skills_dir" "$hooks_dir" "$agents_dir"
+
+  cat > "$dest/plugin.json" << EOF
+{
+  "name": "hexz",
+  "version": "$VERSION",
+  "description": "HEXZ — Anti-slop, security scanning, design scaffolds, web search, image handling, plugin marketplace.",
+  "skills": "./skills/"
+}
+EOF
+
+  cat > "$hooks_dir/hooks.json" << 'EOF'
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'which biome >/dev/null 2>&1 && biome format --write \"${FILE_PATH}\" 2>/dev/null || which prettier >/dev/null 2>&1 && prettier --write \"${FILE_PATH}\" 2>/dev/null || true'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'echo \"${ARGS}\" | grep -qE \"rm (-rf| -fr)|dd if=|mkfs|\"\" > /dev/null && echo \"[HEXZ] Destructive command detected. Create a simulation first.\" || true'"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+  cat > "$agents_dir/hexz-agent.md" << 'EOF'
+---
+name: hexz-agent
+description: General-purpose HEXZ agent for web search, security scanning, design, and codebase analysis
+model: sonnet
+effort: medium
+maxTurns: 30
+---
+
+You are the HEXZ agent. You have access to all HEXZ skills:
+- hexz_search: Web search via DuckDuckGo
+- hexz_scan: Security audit and vulnerability scanning
+- hexz_design: Generate HTML/CSS design scaffolds
+- hexz_image: OCR-based image analysis
+- hexz_webss: Website screenshots via Puppeteer
+- hexz_mcp: MCP server management
+- hexz_memory: Persistent memory across sessions
+- hexz_pr: Git PR workflow
+- hexz_mkp: Plugin and skill marketplace
+- hexz_sim: Simulation sandbox for destructive actions
+- hexz_codebase: Codebase scanning and analysis
+- hexz_cyber: Cybersecurity skills and framework mappings
+- hexz_doctor: Health check for tools and dependencies
+
+Always search for current docs before writing code. Run security scans after building. Check for similar patterns in the codebase before making changes.
+EOF
+
+  declare -A SKILL_DESCS
+  SKILL_DESCS=( \
+    ["hexz_search"]="Web search via DuckDuckGo with SearXNG/Chromium fallbacks" \
+    ["hexz_scan"]="Security audit: injection, XSS, secrets, dependency vulns, auth, crypto" \
+    ["hexz_design"]="Generate HTML/CSS design scaffolds from a brief with craft rules" \
+    ["hexz_image"]="Analyze images via OCR: screenshots, error messages, diagrams" \
+    ["hexz_webss"]="Capture website screenshots via Puppeteer" \
+    ["hexz_mcp"]="MCP server management for DB, filesystem, and API access" \
+    ["hexz_memory"]="Persistent agent memory across sessions" \
+    ["hexz_pr"]="Git PR workflow with status, diff, and creation" \
+    ["hexz_mkp"]="Plugin/skill marketplace from GitHub or npm" \
+    ["hexz_status"]="Show HEXZ status, uptime, search count" \
+    ["hexz_sim"]="Simulation sandbox for safe destructive actions" \
+    ["hexz_codebase"]="Scan project and generate codebase.md" \
+    ["hexz_cyber"]="Cybersecurity skills across 15 domains" \
+    ["hexz_doctor"]="Health check for runtime, scanners, browser, git" \
+    ["active"]="Engage HEXZ upgrade layer" \
+    ["off"]="Revert to default behavior" \
+  )
+
+  for skill_name in "${!SKILL_DESCS[@]}"; do
+    mkdir -p "$skills_dir/$skill_name"
+    cat > "$skills_dir/$skill_name/SKILL.md" << SKILLEOF
+---
+name: $skill_name
+description: ${SKILL_DESCS[$skill_name]}
+---
+
+${SKILL_DESCS[$skill_name]}
+
+HEXZ v$VERSION — https://github.com/hexzonetwork/opencode-hexz
+SKILLEOF
+  done
+
+  ok "$label"
+  echo "    $dest/plugin.json (manifest)"
+  echo "    $hooks_dir/hooks.json (hooks)"
+  echo "    $agents_dir/hexz-agent.md (agent)"
+  for s in "${!SKILL_DESCS[@]}"; do echo "    $skills_dir/$s/SKILL.md"; done
+}
+
 install_mimo_to() {
   local dest="$1" label="$2"
   local toolsdir="$dest/tools"
@@ -484,6 +709,18 @@ if [ "$RUNTIME" = "mimo" ]; then
     project) install_mimo_to "$(realpath "$DEST")/.mimocode" "Project-level (MiMo Code)" ;;
     global)  install_mimo_to "$HOME/.config/mimocode" "Global (MiMo Code)" ;;
     both)    install_mimo_to "$HOME/.config/mimocode" "Global (MiMo Code)"; echo ""; install_mimo_to "$(realpath "$DEST")/.mimocode" "Project-level (MiMo Code)" ;;
+  esac
+elif [ "$RUNTIME" = "codex" ]; then
+  case "$MODE" in
+    project) install_codex_to "$(realpath "$DEST")/.codex-plugin" "Project-level (Codex)" ;;
+    global)  install_codex_to "$HOME/.config/codex" "Global (Codex)" ;;
+    both)    install_codex_to "$HOME/.config/codex" "Global (Codex)"; echo ""; install_codex_to "$(realpath "$DEST")/.codex-plugin" "Project-level (Codex)" ;;
+  esac
+elif [ "$RUNTIME" = "claude" ]; then
+  case "$MODE" in
+    project) install_claude_to "$(realpath "$DEST")/.claude-plugin" "Project-level (Claude Code)" ;;
+    global)  install_claude_to "$HOME/.config/claude" "Global (Claude Code)" ;;
+    both)    install_claude_to "$HOME/.config/claude" "Global (Claude Code)"; echo ""; install_claude_to "$(realpath "$DEST")/.claude-plugin" "Project-level (Claude Code)" ;;
   esac
 else
   case "$MODE" in
@@ -563,6 +800,10 @@ if [ "$RUNTIME" = "mimo" ]; then
     global)  verify_mimo_config "$HOME/.config/mimocode" ;;
     both)    verify_mimo_config "$(realpath "$DEST")"; verify_mimo_config "$HOME/.config/mimocode" ;;
   esac
+elif [ "$RUNTIME" = "codex" ]; then
+  :
+elif [ "$RUNTIME" = "claude" ]; then
+  :
 else
   case "$MODE" in
     project) verify_opencode_config "$(realpath "$DEST")" ;;
@@ -578,6 +819,10 @@ echo ""
 echo -e "  ${BOLD}Next steps:${RESET}"
 if [ "$RUNTIME" = "mimo" ]; then
   echo "    1. Restart mimo / MiMo Code"
+elif [ "$RUNTIME" = "codex" ]; then
+  echo "    1. Restart Codex"
+elif [ "$RUNTIME" = "claude" ]; then
+  echo "    1. Restart Claude Code"
 else
   echo "    1. Restart opencode"
 fi

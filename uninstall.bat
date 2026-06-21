@@ -3,6 +3,7 @@ setlocal enabledelayedexpansion
 
 set "FORCE=false"
 set "TARGET=all"
+set "RUNTIME=opencode"
 
 :parse_args
 if "%~1"=="" goto :parse_done
@@ -12,6 +13,10 @@ if "%~1"=="-g" set "TARGET=global" & shift & goto :parse_args
 if "%~1"=="--global" set "TARGET=global" & shift & goto :parse_args
 if "%~1"=="-p" set "TARGET=project" & shift & goto :parse_args
 if "%~1"=="--project" set "TARGET=project" & shift & goto :parse_args
+if "%~1"=="-cx" set "RUNTIME=codex" & shift & goto :parse_args
+if "%~1"=="--codex" set "RUNTIME=codex" & shift & goto :parse_args
+if "%~1"=="-cc" set "RUNTIME=claude" & shift & goto :parse_args
+if "%~1"=="--claude" set "RUNTIME=claude" & shift & goto :parse_args
 if "%~1"=="-h" goto :usage
 if "%~1"=="--help" goto :usage
 echo Unknown: %1
@@ -19,21 +24,49 @@ goto :usage
 
 :parse_done
 echo.
-echo   HEXZ Uninstall
+if "%RUNTIME%"=="codex" (
+  echo   HEXZ Uninstall -- OpenAI Codex
+) else if "%RUNTIME%"=="claude" (
+  echo   HEXZ Uninstall -- Claude Code
+) else (
+  echo   HEXZ Uninstall
+)
 echo.
 
 set "REMOVED=0"
 
-if "%TARGET%"=="all" (
-  call :remove_project
-  call :remove_global
+if "%RUNTIME%"=="codex" (
+  if "%TARGET%"=="all" (
+    call :remove_codex_project
+    call :remove_codex_global
+  )
+  if "%TARGET%"=="project" call :remove_codex_project
+  if "%TARGET%"=="global" call :remove_codex_global
+) else if "%RUNTIME%"=="claude" (
+  if "%TARGET%"=="all" (
+    call :remove_claude_project
+    call :remove_claude_global
+  )
+  if "%TARGET%"=="project" call :remove_claude_project
+  if "%TARGET%"=="global" call :remove_claude_global
+) else (
+  if "%TARGET%"=="all" (
+    call :remove_project
+    call :remove_global
+  )
+  if "%TARGET%"=="project" call :remove_project
+  if "%TARGET%"=="global" call :remove_global
 )
-if "%TARGET%"=="project" call :remove_project
-if "%TARGET%"=="global" call :remove_global
 
 echo.
 if "%REMOVED%"=="1" (
-  echo   HEXZ removed. Restart opencode.
+  if "%RUNTIME%"=="codex" (
+    echo   HEXZ removed. Restart Codex.
+  ) else if "%RUNTIME%"=="claude" (
+    echo   HEXZ removed. Restart Claude Code.
+  ) else (
+    echo   HEXZ removed. Restart opencode.
+  )
 ) else (
   echo   Nothing to remove.
 )
@@ -50,6 +83,8 @@ echo Options:
 echo   -f, --force    Remove without confirmation
 echo   -g, --global   Remove global install only
 echo   -p, --project  Remove project install only
+echo   -cx, --codex   Remove Codex install
+echo   -cc, --claude  Remove Claude Code install
 echo   -h, --help     Show this help
 echo.
 goto :eof
@@ -127,6 +162,78 @@ rd "%dir%\plugins" 2>nul
 
 call :remove_plugin_from_config "%USERPROFILE%\.config\opencode"
 echo [OK] Removed global install
+set "REMOVED=1"
+goto :eof
+
+:remove_codex_project
+set "dir=.codex-plugin"
+if not exist "%dir%" (
+  echo   No Codex project install found
+  goto :eof
+)
+if "%FORCE%"=="false" (
+  set /p "CONFIRM=  Remove Codex project files from %dir%/? [y/N]: "
+  if /i not "!CONFIRM!"=="y" (
+    echo   Skipped
+    goto :eof
+  )
+)
+rmdir /s /q "%dir%"
+echo [OK] Removed Codex project install
+set "REMOVED=1"
+goto :eof
+
+:remove_codex_global
+set "dir=%USERPROFILE%\.config\codex"
+if not exist "%dir%" (
+  echo   No Codex global install found
+  goto :eof
+)
+if "%FORCE%"=="false" (
+  set /p "CONFIRM=  Remove Codex global files from %dir%/? [y/N]: "
+  if /i not "!CONFIRM!"=="y" (
+    echo   Skipped
+    goto :eof
+  )
+)
+rmdir /s /q "%dir%"
+echo [OK] Removed Codex global install
+set "REMOVED=1"
+goto :eof
+
+:remove_claude_project
+set "dir=.claude-plugin"
+if not exist "%dir%" (
+  echo   No Claude Code project install found
+  goto :eof
+)
+if "%FORCE%"=="false" (
+  set /p "CONFIRM=  Remove Claude Code project files from %dir%/? [y/N]: "
+  if /i not "!CONFIRM!"=="y" (
+    echo   Skipped
+    goto :eof
+  )
+)
+rmdir /s /q "%dir%"
+echo [OK] Removed Claude Code project install
+set "REMOVED=1"
+goto :eof
+
+:remove_claude_global
+set "dir=%USERPROFILE%\.config\claude"
+if not exist "%dir%" (
+  echo   No Claude Code global install found
+  goto :eof
+)
+if "%FORCE%"=="false" (
+  set /p "CONFIRM=  Remove Claude Code global files from %dir%/? [y/N]: "
+  if /i not "!CONFIRM!"=="y" (
+    echo   Skipped
+    goto :eof
+  )
+)
+rmdir /s /q "%dir%"
+echo [OK] Removed Claude Code global install
 set "REMOVED=1"
 goto :eof
 

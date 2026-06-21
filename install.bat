@@ -6,6 +6,7 @@ set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "MODE="
 set "AUTO_YES=false"
 set "DEST="
+set "RUNTIME=opencode"
 
 :parse_args
 if "%~1"=="" goto :parse_done
@@ -21,6 +22,10 @@ if "%~1"=="-h" goto :usage
 if "%~1"=="--help" goto :usage
 if "%~1"=="-v" goto :version
 if "%~1"=="--version" goto :version
+if "%~1"=="-cx" set "RUNTIME=codex" & shift & goto :parse_args
+if "%~1"=="--codex" set "RUNTIME=codex" & shift & goto :parse_args
+if "%~1"=="-cc" set "RUNTIME=claude" & shift & goto :parse_args
+if "%~1"=="--claude" set "RUNTIME=claude" & shift & goto :parse_args
 echo Unknown flag: %1
 goto :usage
 
@@ -28,9 +33,19 @@ goto :usage
 if "%DEST%"=="" set "DEST=."
 
 echo.
-echo   +-------------------------+
-echo   ^|     HEXZ - OpenCode     ^|
-echo   +-------------------------+
+if "%RUNTIME%"=="codex" (
+  echo   +-------------------------+
+  echo   ^|  HEXZ - OpenAI Codex   ^|
+  echo   +-------------------------+
+) else if "%RUNTIME%"=="claude" (
+  echo   +-------------------------+
+  echo   ^|  HEXZ - Claude Code    ^|
+  echo   +-------------------------+
+) else (
+  echo   +-------------------------+
+  echo   ^|    HEXZ - OpenCode     ^|
+  echo   +-------------------------+
+)
 echo.
 
 :preflight_bun
@@ -123,9 +138,16 @@ echo.
 :choose_mode
 if not "%MODE%"=="" goto :do_install
 if "%AUTO_YES%"=="true" set "MODE=project" & goto :do_install
+if "%RUNTIME%"=="codex" (
+  set "dir_label=.codex-plugin\"
+) else if "%RUNTIME%"=="claude" (
+  set "dir_label=.claude-plugin\"
+) else (
+  set "dir_label=.opencode\"
+)
 echo Install target:
-echo   1) Project-level   -> ./.opencode/
-echo   2) Global           -> %%USERPROFILE%%\.config\opencode\
+echo   1) Project-level   -> .\!dir_label!
+echo   2) Global           -> %%USERPROFILE%%\.config\!RUNTIME!\
 echo   3) Both
 echo.
 set /p "CHOICE=  Choose [1-3] (default: 1): "
@@ -138,30 +160,58 @@ if "%MODE%"=="" echo Invalid choice. & exit /b 1
 :do_install
 echo Installing:
 
-if "%MODE%"=="project" call :install_to "%CD%\.opencode" "Project-level"
-if "%MODE%"=="global" call :install_to "%USERPROFILE%\.config\opencode" "Global"
-if "%MODE%"=="both" (
-  call :install_to "%USERPROFILE%\.config\opencode" "Global"
-  echo.
-  call :install_to "%CD%\.opencode" "Project-level"
+if "%RUNTIME%"=="codex" (
+  if "%MODE%"=="project" call :install_codex_to "%CD%\.codex-plugin" "Project-level (Codex)"
+  if "%MODE%"=="global" call :install_codex_to "%USERPROFILE%\.config\codex" "Global (Codex)"
+  if "%MODE%"=="both" (
+    call :install_codex_to "%USERPROFILE%\.config\codex" "Global (Codex)"
+    echo.
+    call :install_codex_to "%CD%\.codex-plugin" "Project-level (Codex)"
+  )
+) else if "%RUNTIME%"=="claude" (
+  if "%MODE%"=="project" call :install_claude_to "%CD%\.claude-plugin" "Project-level (Claude Code)"
+  if "%MODE%"=="global" call :install_claude_to "%USERPROFILE%\.config\claude" "Global (Claude Code)"
+  if "%MODE%"=="both" (
+    call :install_claude_to "%USERPROFILE%\.config\claude" "Global (Claude Code)"
+    echo.
+    call :install_claude_to "%CD%\.claude-plugin" "Project-level (Claude Code)"
+  )
+) else (
+  if "%MODE%"=="project" call :install_to "%CD%\.opencode" "Project-level"
+  if "%MODE%"=="global" call :install_to "%USERPROFILE%\.config\opencode" "Global"
+  if "%MODE%"=="both" (
+    call :install_to "%USERPROFILE%\.config\opencode" "Global"
+    echo.
+    call :install_to "%CD%\.opencode" "Project-level"
+  )
 )
 
 echo.
 echo Verifying config:
+if not "%RUNTIME%"=="opencode" goto :skip_config
 if "%MODE%"=="project" call :verify_config "%CD%"
 if "%MODE%"=="global" call :verify_config "%USERPROFILE%\.config\opencode"
 if "%MODE%"=="both" (
   call :verify_config "%CD%"
   call :verify_config "%USERPROFILE%\.config\opencode"
 )
+:skip_config
 
 echo.
 echo   HEXZ installed successfully!
 echo.
 echo   Next steps:
-echo     1. Restart opencode (if running)
-echo     2. Type /active to engage HEXZ
-echo     3. Type /off to revert
+if "%RUNTIME%"=="codex" (
+  echo     1. Restart Codex (if running)
+  echo     2. The /hexz_search, /hexz_scan etc. skills will be available
+) else if "%RUNTIME%"=="claude" (
+  echo     1. Restart Claude Code (if running)
+  echo     2. The /hexz_search, /hexz_scan etc. skills will be available
+) else (
+  echo     1. Restart opencode (if running)
+  echo     2. Type /active to engage HEXZ
+  echo     3. Type /off to revert
+)
 echo.
 echo   Tools:
 echo     hexz_search    Search the web
@@ -179,7 +229,7 @@ echo.
 goto :eof
 
 :usage
-echo HEXZ - OpenCode Upgrade Layer
+echo HEXZ - OpenCode, Codex, Claude Code ^& MiMo Code Upgrade Layer
 echo.
 echo Usage:
 echo   install.bat [OPTIONS] [DIRECTORY]
@@ -188,6 +238,8 @@ echo Options:
 echo   -g, --global     Install to %%USERPROFILE%%\.config\opencode\ only
 echo   -p, --project    Install to .\.opencode\ only (default)
 echo   -b, --both       Install globally and locally
+echo   -cx, --codex     Install for OpenAI Codex (.codex-plugin\)
+echo   -cc, --claude    Install for Claude Code (.claude-plugin\)
 echo   -y, --yes        Accept all defaults, no prompts
 echo   -h, --help       Show this help
 echo   -v, --version    Show plugin version
@@ -195,6 +247,8 @@ echo.
 echo Examples:
 echo   install.bat
 echo   install.bat -g
+echo   install.bat --codex -g
+echo   install.bat --claude -g
 echo   install.bat C:\my\project -y
 echo   install.bat -b
 echo.
@@ -282,6 +336,162 @@ echo     plugins\package.json    -^> %plugdir%\package.json
 echo     plugins\index.ts        -^> %plugdir%\index.ts
 echo     commands\active.md      -^> %dest%\commands\active.md
 echo     commands\off.md         -^> %dest%\commands\off.md
+goto :eof
+
+:install_codex_to
+set "dest=%~1"
+set "label=%~2"
+if exist "%dest%" rmdir /s /q "%dest%"
+mkdir "%dest%\skills" "%dest%\hooks"
+
+(
+echo {
+echo   "name": "hexz",
+echo   "version": "1.5.2",
+echo   "description": "HEXZ - Anti-slop, security scanning, design scaffolds, web search, image handling, plugin marketplace.",
+echo   "skills": "./skills/",
+echo   "hooks": "./hooks/"
+echo }
+) > "%dest%\plugin.json"
+
+(
+echo {
+echo   "hooks": {
+echo     "PostToolUse": [
+echo       {
+echo         "matcher": "Write|Edit",
+echo         "hooks": [
+echo           {
+echo             "type": "command",
+echo             "command": "sh -c 'which biome >/dev/null 2^&^&1 ^&^& biome format --write \"${FILE_PATH}\" 2>/dev/null ^|^| which prettier >/dev/null 2^&^&1 ^&^& prettier --write \"${FILE_PATH}\" 2>/dev/null ^|^| true'"
+echo           }
+echo         ]
+echo       }
+echo     ],
+echo     "PreToolUse": [
+echo       {
+echo         "matcher": "Bash",
+echo         "hooks": [
+echo           {
+echo             "type": "command",
+echo             "command": "sh -c 'echo \"${ARGS}\" ^| grep -qE \"rm (-rf^| -fr)^|dd if=^|mkfs\" ^> /dev/null ^&^& echo \"[HEXZ] Destructive command detected. Create a simulation first with: hexz_sim(name=..., plan=...)\" ^|^| true'"
+echo           }
+echo         ]
+echo       }
+echo     ]
+echo   }
+echo }
+) > "%dest%\hooks\hooks.json"
+
+setlocal enabledelayedexpansion
+for /f "tokens=1,* delims=]" %%a in ('findstr /n "^" "%~f0"') do if "%%b"==":list_codex_skills" goto :install_codex_skills
+:install_codex_skills_loop
+for %%s in (hexz_search hexz_scan hexz_design hexz_image hexz_webss hexz_mcp hexz_memory hexz_pr hexz_mkp hexz_status hexz_sim hexz_codebase hexz_cyber hexz_doctor active off) do (
+  if not exist "%dest%\skills\%%s" mkdir "%dest%\skills\%%s"
+  (
+  echo ---
+  echo name: %%s
+  echo description: HEXZ skill
+  echo ---
+  echo.
+  echo HEXZ v1.5.2
+  ) > "%dest%\skills\%%s\SKILL.md"
+)
+echo [OK] %label%
+echo     plugin.json
+echo     hooks\hooks.json
+for %%s in (hexz_search hexz_scan hexz_design hexz_image hexz_webss hexz_mcp hexz_memory hexz_pr hexz_mkp hexz_status hexz_sim hexz_codebase hexz_cyber hexz_doctor active off) do echo     skills\%%s\SKILL.md
+endlocal
+goto :eof
+
+:install_claude_to
+set "dest=%~1"
+set "label=%~2"
+if exist "%dest%" rmdir /s /q "%dest%"
+mkdir "%dest%\skills" "%dest%\hooks" "%dest%\agents"
+
+(
+echo {
+echo   "name": "hexz",
+echo   "version": "1.5.2",
+echo   "description": "HEXZ - Anti-slop, security scanning, design scaffolds, web search, image handling, plugin marketplace.",
+echo   "skills": "./skills/",
+echo   "hooks": "./hooks/"
+echo }
+) > "%dest%\plugin.json"
+
+(
+echo {
+echo   "hooks": {
+echo     "PostToolUse": [
+echo       {
+echo         "matcher": "Write|Edit",
+echo         "hooks": [
+echo           {
+echo             "type": "command",
+echo             "command": "sh -c 'which biome >/dev/null 2^&^&1 ^&^& biome format --write \"${FILE_PATH}\" 2>/dev/null ^|^| which prettier >/dev/null 2^&^&1 ^&^& prettier --write \"${FILE_PATH}\" 2>/dev/null ^|^| true'"
+echo           }
+echo         ]
+echo       }
+echo     ],
+echo     "PreToolUse": [
+echo       {
+echo         "matcher": "Bash",
+echo         "hooks": [
+echo           {
+echo             "type": "command",
+echo             "command": "sh -c 'echo \"${ARGS}\" ^| grep -qE \"rm (-rf^| -fr)^|dd if=^|mkfs\" ^> /dev/null ^&^& echo \"[HEXZ] Destructive command detected. Create a simulation first with: hexz_sim(name=..., plan=...)\" ^|^| true'"
+echo           }
+echo         ]
+echo       }
+echo     ]
+echo   }
+echo }
+) > "%dest%\hooks\hooks.json"
+
+(
+echo ---
+echo name: hexz-agent
+echo description: General-purpose HEXZ agent for web search, security scanning, design, and codebase analysis
+echo model: sonnet
+echo effort: medium
+echo maxTurns: 30
+echo ---
+echo.
+echo You are the HEXZ agent. You have access to all HEXZ skills:
+echo - hexz_search: Web search via DuckDuckGo
+echo - hexz_scan: Security audit and vulnerability scanning
+echo - hexz_design: Generate HTML/CSS design scaffolds
+echo - hexz_image: OCR-based image analysis
+echo - hexz_webss: Website screenshots via Puppeteer
+echo - hexz_mcp: MCP server management
+echo - hexz_memory: Persistent memory across sessions
+echo - hexz_pr: Git PR workflow
+echo - hexz_mkp: Plugin and skill marketplace
+echo - hexz_sim: Simulation sandbox for destructive actions
+echo - hexz_codebase: Codebase scanning and analysis
+echo - hexz_cyber: Cybersecurity skills and framework mappings
+echo - hexz_doctor: Health check for tools and dependencies
+echo.
+echo Always search for current docs before writing code. Run security scans after building. Check for similar patterns in the codebase before making changes.
+) > "%dest%\agents\hexz-agent.md"
+
+for %%s in (hexz_search hexz_scan hexz_design hexz_image hexz_webss hexz_mcp hexz_memory hexz_pr hexz_mkp hexz_status hexz_sim hexz_codebase hexz_cyber hexz_doctor active off) do (
+  if not exist "%dest%\skills\%%s" mkdir "%dest%\skills\%%s"
+  (
+  echo ---
+  echo name: %%s
+  echo description: HEXZ skill
+  echo ---
+  echo.
+  echo HEXZ v1.5.2
+  ) > "%dest%\skills\%%s\SKILL.md"
+)
+echo [OK] %label%
+echo     plugin.json
+echo     hooks\hooks.json
+echo     agents\hexz-agent.md
+for %%s in (hexz_search hexz_scan hexz_design hexz_image hexz_webss hexz_mcp hexz_memory hexz_pr hexz_mkp hexz_status hexz_sim hexz_codebase hexz_cyber hexz_doctor active off) do echo     skills\%%s\SKILL.md
 goto :eof
 
 :verify_config
